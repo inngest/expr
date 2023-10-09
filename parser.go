@@ -75,16 +75,21 @@ func navigateAST(nav expr, depth int) []PredicateGroup {
 	// evaluate or expressions after all other branches, eg. "&&" operators or equality checks.
 	orExpressions := []expr{}
 
+	// Iterate through the stack, recursing down into each function call (eg. && branches).
 	for len(stack) > 0 {
 		item := stack[0]
 		stack = stack[1:]
 
 		switch item.Kind() {
 		case celast.LiteralKind:
-			// This is a literal string.
+			// This is a literal string.  Do nothing.
 		case celast.IdentKind:
-			// This is a variable.
+			// This is a variable. Do nothing.
 		case celast.CallKind:
+			// Call kinds are the actual comparator operators, eg. >=, or &&.  These are specifically
+			// what we're trying to parse, by taking the LHS and RHS of each opeartor then bringing
+			// this up into a tree.
+
 			// Everything within this branch is negated, if this is a logical not:
 			// !(a == b).  This flips the negated field, ie !(foo == bar) becomes foo != bar,
 			// whereas !(!(foo == bar)) stays the same.
@@ -115,7 +120,7 @@ func navigateAST(nav expr, depth int) []PredicateGroup {
 				continue
 			}
 
-			group = append(group, *predicate)
+			group.Predicates = append(group.Predicates, *predicate)
 		}
 
 		for _, child := range item.Children() {
@@ -129,7 +134,7 @@ func navigateAST(nav expr, depth int) []PredicateGroup {
 		item := orExpressions[0]
 		orExpressions = orExpressions[1:]
 
-		if depth > 0 || len(group) > 0 {
+		if depth > 0 || len(group.Predicates) > 0 {
 			continue
 		}
 
@@ -139,23 +144,23 @@ func navigateAST(nav expr, depth int) []PredicateGroup {
 			// If we have items that have already been found or in the group, append
 			// to the depth.  This way, top-level branches don't increase depth.
 			nextDepth := depth
-			if len(group) > 0 {
+			if len(group.Predicates) > 0 {
 				nextDepth += 1
 			}
 			found = append(found, navigateAST(expr{NavigableExpr: arg, negated: item.negated}, nextDepth)...)
 		}
 	}
 
-	if len(group) > 0 {
+	if len(group.Predicates) > 0 {
 		// Deduplicate groups so that duplicate expressions don't count.
 		seen := map[string]struct{}{}
 		actual := PredicateGroup{}
-		for _, g := range group {
+		for _, g := range group.Predicates {
 			if _, ok := seen[g.hash()]; ok {
 				continue
 			}
 			seen[g.hash()] = struct{}{}
-			actual = append(actual, g)
+			actual.Predicates = append(actual.Predicates, g)
 		}
 
 		return append(found, actual)
@@ -175,6 +180,7 @@ func callToPredicate(call expr, depth int) *Predicate {
 		ident   string
 		literal any
 	)
+
 	for _, item := range args {
 		switch item.Kind() {
 		case celast.IdentKind:
@@ -276,7 +282,14 @@ func invert(op string) string {
 //
 // TODO: Change this to a struct with a tree for nested expressions (foo && (bar || baz).  This
 // allows us to continue tree matching in a nested fashion, if we ever desire.
-type PredicateGroup []Predicate
+type PredicateGroup struct {
+	// GroupID represents a unique ID for this group.  All predicates within this group
+	// mst match in order for the expression to be evaluated;  we use the group ID to ensure
+	// that all expressions are matched individually.
+	GroupID groupID
+	// Predicates are the predicates within this group.
+	Predicates []Predicate
+}
 
 // Predicate represents a predicate that must evaluate to true in order for an expression to
 // be considered as viable when checking an event.

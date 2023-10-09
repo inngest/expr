@@ -59,7 +59,3 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) error {
 func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 	return fmt.Errorf("not implemented")
 }
-
-// leaf represents the leaf within a tree.
-type leaf struct {
-}
