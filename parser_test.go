@@ -46,7 +46,6 @@ func TestParse(t *testing.T) {
 			// We can't compare predicate groups as the ID is random.
 			for n, item := range actual {
 				expected := test.expected[n]
-
 				require.EqualValues(t, expected.Predicates, item.Predicates)
 				require.EqualValues(t, len(item.Predicates), item.GroupID.Size())
 			}
@@ -680,5 +679,19 @@ func TestParse(t *testing.T) {
 
 		assert(t, tests)
 	})
+}
 
+func TestParseGroupIDs(t *testing.T) {
+	t.Run("It creates new group IDs when parsing the same expression", func(t *testing.T) {
+		ctx := context.Background()
+		a, err := newParser(t).Parse(ctx, "event == 'foo'")
+		require.NoError(t, err)
+		b, err := newParser(t).Parse(ctx, "event == 'foo'")
+		require.NoError(t, err)
+		c, err := newParser(t).Parse(ctx, "event == 'foo'")
+
+		require.NotEqual(t, a[0].GroupID, b[0].GroupID)
+		require.NotEqual(t, b[0].GroupID, c[0].GroupID)
+		require.NotEqual(t, a[0].GroupID, c[0].GroupID)
+	})
 }

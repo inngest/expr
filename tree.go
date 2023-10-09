@@ -35,7 +35,6 @@ type Leaf struct {
 }
 
 type ExpressionPart struct {
-	GroupID   int32
+	GroupID   groupID
 	Evaluable Evaluable
-	// TODO: How do we know this is part of a set
 }
