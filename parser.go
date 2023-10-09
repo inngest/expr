@@ -154,16 +154,20 @@ func navigateAST(nav expr, depth int) []PredicateGroup {
 	if len(group.Predicates) > 0 {
 		// Deduplicate groups so that duplicate expressions don't count.
 		seen := map[string]struct{}{}
-		actual := PredicateGroup{}
+
+		deduped := []Predicate{}
 		for _, g := range group.Predicates {
 			if _, ok := seen[g.hash()]; ok {
 				continue
 			}
 			seen[g.hash()] = struct{}{}
-			actual.Predicates = append(actual.Predicates, g)
+			deduped = append(deduped, g)
 		}
 
-		return append(found, actual)
+		group.Predicates = deduped
+		group.GroupID = newGroupID(uint16(len(group.Predicates)))
+
+		return append(found, group)
 	}
 
 	return found

@@ -2,7 +2,6 @@ package expr
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	"github.com/google/cel-go/cel"
@@ -26,14 +25,36 @@ func newParser(t *testing.T) TreeParser {
 	return parser
 }
 
+type parseTestInput struct {
+	input    string
+	expected []PredicateGroup
+}
+
 func TestParse(t *testing.T) {
 	ctx := context.Background()
 
+	// helper function to assert each case.
+	assert := func(t *testing.T, tests []parseTestInput) {
+		for _, test := range tests {
+			actual, err := newParser(t).Parse(ctx, test.input)
+			require.NoError(t, err)
+			require.Equal(t, len(test.expected), len(actual))
+
+			// Assert all predicate groups are the same, and the ID has the
+			// correct count embedded.
+			//
+			// We can't compare predicate groups as the ID is random.
+			for n, item := range actual {
+				expected := test.expected[n]
+
+				require.EqualValues(t, expected.Predicates, item.Predicates)
+				require.EqualValues(t, len(item.Predicates), item.GroupID.Size())
+			}
+		}
+	}
+
 	t.Run("Base case", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input: `!(event == "no") && !(!(event == "yes")) && event.data > 50 && (event.ok >= 'true' && event.continue != 'no')`,
 				expected: []PredicateGroup{
@@ -57,18 +78,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual, test.input)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It handles basic expressions", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input: "event == 'foo'",
 				expected: []PredicateGroup{
@@ -165,18 +179,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual, test.input)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It negates expressions", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input:    "!(event.data.a == 'a')",
 				expected: []PredicateGroup{},
@@ -198,18 +205,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual, test.input)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It doesn't handle non equality matching for strings", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input:    "event.data.a >= 'a'",
 				expected: []PredicateGroup{},
@@ -220,18 +220,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It handles OR branching", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input: "event == 'foo' || event == 'bar'",
 				expected: []PredicateGroup{
@@ -350,19 +343,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			byt, _ := json.MarshalIndent(actual, "", "  ")
-			require.EqualValues(t, test.expected, actual, string(byt))
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It handles AND branching", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input: "event.data.a == 'a' && event.data.b == 'b' && event.data.c == 'c' && event.data.d  == 'd' && event.ts > 123",
 				expected: []PredicateGroup{
@@ -404,18 +389,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It handles OR branching", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				input: "event == 'foo' || event == 'bar'",
 				expected: []PredicateGroup{
@@ -534,19 +512,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			byt, _ := json.MarshalIndent(actual, "", "  ")
-			require.EqualValues(t, test.expected, actual, string(byt))
-		}
+		assert(t, tests)
 	})
 
 	t.Run("It normalizes GT/LT(e) operators", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			// Normalizing to literal on RHS
 			{
 				input: "100 < event.data.value",
@@ -671,18 +641,11 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.EqualValues(t, test.expected, actual)
-		}
+		assert(t, tests)
 	})
 
 	t.Run("Complex queries with many branches", func(t *testing.T) {
-		tests := []struct {
-			input    string
-			expected []PredicateGroup
-		}{
+		tests := []parseTestInput{
 			{
 				// NOTE: It is expected that this ignores the nested if branches, currently.
 				// We still evaluate expressions that match predicate groups. Over time, we will
@@ -715,12 +678,7 @@ func TestParse(t *testing.T) {
 			},
 		}
 
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			byt, _ := json.MarshalIndent(actual, "", "  ")
-			require.EqualValues(t, test.expected, actual, string(byt))
-		}
+		assert(t, tests)
 	})
 
 }
