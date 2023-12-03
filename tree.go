@@ -34,7 +34,17 @@ type Leaf struct {
 	Evals []ExpressionPart
 }
 
+// ExpressionPart represents a predicate group which is part of an expression.
+// All parts for the given group ID must evaluate to true for the predicate to
+// be matched.
 type ExpressionPart struct {
+	// GroupID represents a group ID for the expression part.
+	//
+	// Within an expression, multiple predicates may be chained with &&.  Each
+	// of these must evaluate to `true` for an expression to match.  Group IDs
+	// are shared amongst each predicate within an expression.
+	//
+	// This lets us determine whether the entire group has been matched.
 	GroupID   groupID
 	Evaluable Evaluable
 }

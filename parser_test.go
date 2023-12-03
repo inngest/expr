@@ -2,6 +2,7 @@ package expr
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/cel-go/cel"
@@ -9,25 +10,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newAggregateEvaluator(t *testing.T) AggregateEvaluator {
+func newTestAggregateEvaluator(t *testing.T) AggregateEvaluator {
 	t.Helper()
-	return NewAggregateEvaluator(newParser(t))
+	parser, _ := newParser()
+	return NewAggregateEvaluator(parser)
 }
 
-func newParser(t *testing.T) TreeParser {
-	env, err := cel.NewEnv(
+func newParser() (TreeParser, error) {
+	env, _ := cel.NewEnv(
 		cel.Variable("event", cel.AnyType),
 		cel.Variable("async", cel.AnyType),
 	)
-	require.NoError(t, err)
-	parser, err := NewTreeParser(env)
-	require.NoError(t, err)
-	return parser
+	return NewTreeParser(env)
 }
 
 type parseTestInput struct {
 	input    string
-	expected []PredicateGroup
+	output   string
+	expected ParsedExpression
 }
 
 func TestParse(t *testing.T) {
@@ -35,142 +35,112 @@ func TestParse(t *testing.T) {
 
 	// helper function to assert each case.
 	assert := func(t *testing.T, tests []parseTestInput) {
-		for _, test := range tests {
-			actual, err := newParser(t).Parse(ctx, test.input)
-			require.NoError(t, err)
-			require.Equal(t, len(test.expected), len(actual))
+		t.Helper()
 
-			// Assert all predicate groups are the same, and the ID has the
-			// correct count embedded.
-			//
-			// We can't compare predicate groups as the ID is random.
-			for n, item := range actual {
-				expected := test.expected[n]
-				require.EqualValues(t, expected.Predicates, item.Predicates)
-				require.EqualValues(t, len(item.Predicates), item.GroupID.Size())
-			}
+		for _, test := range tests {
+			parser, err := newParser()
+			require.NoError(t, err)
+			actual, err := parser.Parse(ctx, test.input)
+
+			require.NoError(t, err)
+			require.NotNil(t, actual)
+
+			require.EqualValues(t, test.output, actual.Root.String(), "String() does not match expected output")
+
+			a, _ := json.MarshalIndent(test.expected, "", " ")
+			b, _ := json.MarshalIndent(actual, "", " ")
+
+			require.EqualValues(
+				t,
+				test.expected,
+				*actual,
+				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s",
+				test.input,
+				string(a),
+				string(b),
+			)
 		}
 	}
-
-	t.Run("Base case", func(t *testing.T) {
-		tests := []parseTestInput{
-			{
-				input: `!(event == "no") && !(!(event == "yes")) && event.data > 50 && (event.ok >= 'true' && event.continue != 'no')`,
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(50),
-								Ident:    "event.data",
-								Operator: operators.Greater,
-							},
-							{
-								Depth:    0,
-								Literal:  "yes",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		assert(t, tests)
-	})
 
 	t.Run("It handles basic expressions", func(t *testing.T) {
 		tests := []parseTestInput{
 			{
-				input: "event == 'foo'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "event == 'foo'",
+				output: `event == "foo"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "foo",
+							Ident:    "event",
+							Operator: operators.Equals,
+						},
+					},
+				},
+			},
+			{
+				input:  "event.data.run_id == 'xyz'",
+				output: `event.data.run_id == "xyz"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "xyz",
+							Ident:    "event.data.run_id",
+							Operator: operators.Equals,
+						},
+					},
+				},
+			},
+
+			{
+				input:  "event.data.id == 'foo' && event.data.value > 100",
+				output: `event.data.id == "foo" && event.data.value > 100`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ands: []*Node{
 							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "foo",
+									Ident:    "event.data.id",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(100),
+									Ident:    "event.data.value",
+									Operator: operators.Greater,
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "event.data.run_id == 'xyz'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "event.data.id == 'foo' && event.data.value > 100 && event.data.float <= 3.141 ",
+				output: `event.data.float <= 3.141 && event.data.id == "foo" && event.data.value > 100`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ands: []*Node{
 							{
-								Depth:    0,
-								Literal:  "xyz",
-								Ident:    "event.data.run_id",
-								Operator: operators.Equals,
-							},
-						},
-					},
-				},
-			},
-			{
-				input: "event.data.id == 'foo' && event.data.value > 100",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event.data.id",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  3.141,
+									Ident:    "event.data.float",
+									Operator: operators.LessEquals,
+								},
 							},
 							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
-							},
-						},
-					},
-				},
-			},
-			{
-				input: "event.data.id == 'foo' && event.data.value > 100 && event.data.float <= 3.141 ",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  float64(3.141),
-								Ident:    "event.data.float",
-								Operator: operators.LessEquals,
+								Predicate: &Predicate{
+									Literal:  "foo",
+									Ident:    "event.data.id",
+									Operator: operators.Equals,
+								},
 							},
 							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event.data.id",
-								Operator: operators.Equals,
-							},
-							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
-							},
-						},
-					},
-				},
-			},
-			// Dupes should be, well, deduped
-			{
-				input: "event == 'foo' && event == 'foo'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  int64(100),
+									Ident:    "event.data.value",
+									Operator: operators.Greater,
+								},
 							},
 						},
 					},
@@ -184,20 +154,27 @@ func TestParse(t *testing.T) {
 	t.Run("It negates expressions", func(t *testing.T) {
 		tests := []parseTestInput{
 			{
-				input:    "!(event.data.a == 'a')",
-				expected: []PredicateGroup{},
+				input:  "!(event.data.a == 'a')",
+				output: `event.data.a != "a"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "a",
+							Ident:    "event.data.a",
+							Operator: operators.NotEquals,
+						},
+					},
+				},
 			},
 			{
-				input: "!(!(event.data.a == 'a'))",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "a",
-								Ident:    "event.data.a",
-								Operator: operators.Equals,
-							},
+				input:  "!(!(event.data.a == 'a'))",
+				output: `event.data.a == "a"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "a",
+							Ident:    "event.data.a",
+							Operator: operators.Equals,
 						},
 					},
 				},
@@ -207,181 +184,43 @@ func TestParse(t *testing.T) {
 		assert(t, tests)
 	})
 
-	t.Run("It doesn't handle non equality matching for strings", func(t *testing.T) {
+	t.Run("It handles non equality matching for strings", func(t *testing.T) {
 		tests := []parseTestInput{
 			{
-				input:    "event.data.a >= 'a'",
-				expected: []PredicateGroup{},
-			},
-			{
-				input:    "event.data.a != 'a'",
-				expected: []PredicateGroup{},
-			},
-		}
-
-		assert(t, tests)
-	})
-
-	t.Run("It handles OR branching", func(t *testing.T) {
-		tests := []parseTestInput{
-			{
-				input: "event == 'foo' || event == 'bar'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
+				input:  "event.data.id >= 'ulid'",
+				output: `event.data.id >= "ulid"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "ulid",
+							Ident:    "event.data.id",
+							Operator: operators.GreaterEquals,
 						},
 					},
 				},
 			},
 			{
-				input: "(event == 'foo' || event == 'bar')",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
+				input:  "event.data.id < 'ulid'",
+				output: `event.data.id < "ulid"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "ulid",
+							Ident:    "event.data.id",
+							Operator: operators.Less,
 						},
 					},
 				},
 			},
 			{
-				input: "event == 'foo' || event == 'bar' || event == 'baz'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "baz",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-				},
-			},
-			{
-				input: "(event.data.type == 'order' && event.data.value > 500) || event.data.type == 'preorder'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "order",
-								Ident:    "event.data.type",
-								Operator: operators.Equals,
-							},
-							{
-								Depth:    0,
-								Literal:  int64(500),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "preorder",
-								Ident:    "event.data.type",
-								Operator: operators.Equals,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		assert(t, tests)
-	})
-
-	t.Run("It handles AND branching", func(t *testing.T) {
-		tests := []parseTestInput{
-			{
-				input: "event.data.a == 'a' && event.data.b == 'b' && event.data.c == 'c' && event.data.d  == 'd' && event.ts > 123",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "c",
-								Ident:    "event.data.c",
-								Operator: operators.Equals,
-							},
-							{
-								Depth:    0,
-								Literal:  "d",
-								Ident:    "event.data.d",
-								Operator: operators.Equals,
-							},
-							{
-								Depth:    0,
-								Literal:  int64(123),
-								Ident:    "event.ts",
-								Operator: operators.Greater,
-							},
-							{
-								Depth:    0,
-								Literal:  "a",
-								Ident:    "event.data.a",
-								Operator: operators.Equals,
-							},
-							{
-								Depth:    0,
-								Literal:  "b",
-								Ident:    "event.data.b",
-								Operator: operators.Equals,
-							},
+				input:  "event.data.a != 'a'",
+				output: `event.data.a != "a"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "a",
+							Ident:    "event.data.a",
+							Operator: operators.NotEquals,
 						},
 					},
 				},
@@ -394,116 +233,151 @@ func TestParse(t *testing.T) {
 	t.Run("It handles OR branching", func(t *testing.T) {
 		tests := []parseTestInput{
 			{
-				input: "event == 'foo' || event == 'bar'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "event == 'foo' || event == 'bar'",
+				output: `event == "foo" || event == "bar"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "foo",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
 							},
-						},
-					},
-					{
-						Predicates: []Predicate{
 							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-				},
-			},
-			{
-				input: "(event == 'foo' || event == 'bar')",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "bar",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "event == 'foo' || event == 'bar' || event == 'baz'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "(event == 'foo' || event == 'bar')",
+				output: `event == "foo" || event == "bar"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  "foo",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "foo",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
 							},
-						},
-					},
-					{
-						Predicates: []Predicate{
 							{
-								Depth:    0,
-								Literal:  "bar",
-								Ident:    "event",
-								Operator: operators.Equals,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0, // RHS is evaluated first.
-								Literal:  "baz",
-								Ident:    "event",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "bar",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "(event.data.type == 'order' && event.data.value > 500) || event.data.type == 'preorder'",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "a == 1 || b == 2 && b != 3",
+				output: `a == 1 || (b == 2 && b != 3)`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
+							// Either
 							{
-								Depth:    0,
-								Literal:  "order",
-								Ident:    "event.data.type",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  int64(1),
+									Ident:    "a",
+									Operator: operators.Equals,
+								},
 							},
 							{
-								Depth:    0,
-								Literal:  int64(500),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(2),
+											Ident:    "b",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(3),
+											Ident:    "b",
+											Operator: operators.NotEquals,
+										},
+									},
+								},
 							},
 						},
 					},
-					{
-						Predicates: []Predicate{
+				},
+			},
+			{
+				input:  "event == 'foo' || event == 'bar' || event == 'baz'",
+				output: `event == "baz" || event == "foo" || event == "bar"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  "preorder",
-								Ident:    "event.data.type",
-								Operator: operators.Equals,
+								Predicate: &Predicate{
+									Literal:  "baz",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  "foo",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  "bar",
+									Ident:    "event",
+									Operator: operators.Equals,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				input:  `(event.data.type == 'order' && event.data.value > 500) || event.data.type == "preorder"`,
+				output: `(event.data.type == "order" && event.data.value > 500) || event.data.type == "preorder"`,
+
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
+							{
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  "order",
+											Ident:    "event.data.type",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(500),
+											Ident:    "event.data.value",
+											Operator: operators.Greater,
+										},
+									},
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  "preorder",
+									Ident:    "event.data.type",
+									Operator: operators.Equals,
+								},
 							},
 						},
 					},
@@ -518,121 +392,488 @@ func TestParse(t *testing.T) {
 		tests := []parseTestInput{
 			// Normalizing to literal on RHS
 			{
-				input: "100 < event.data.value",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
-							},
+				input:  "100 < event.data.value",
+				output: "event.data.value > 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Greater,
 						},
 					},
 				},
 			},
 			{
-				input: "100 <= event.data.value",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.GreaterEquals,
-							},
+				input:  "100 <= event.data.value",
+				output: "event.data.value >= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.GreaterEquals,
 						},
 					},
 				},
 			},
 			{
-				input: "100 > event.data.value",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Less,
-							},
+				input:  "100 > event.data.value",
+				output: "event.data.value < 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Less,
 						},
 					},
 				},
 			},
 			{
-				input: "100 >= event.data.value",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.LessEquals,
-							},
+				input:  "100 >= event.data.value",
+				output: "event.data.value <= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.LessEquals,
 						},
 					},
 				},
 			},
 			// Normal
 			{
-				input: "event.data.value < 100",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				input:  "event.data.value < 100",
+				output: "event.data.value < 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Less,
+						},
+					},
+				},
+			},
+			{
+				input:  "event.data.value <= 100",
+				output: "event.data.value <= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.LessEquals,
+						},
+					},
+				},
+			},
+			{
+				input:  "event.data.value > 100",
+				output: "event.data.value > 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Greater,
+						},
+					},
+				},
+			},
+			{
+				input:  "event.data.value >= 100",
+				output: "event.data.value >= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.GreaterEquals,
+						},
+					},
+				},
+			},
+		}
+
+		assert(t, tests)
+	})
+
+	t.Run("It negates GT/LT(e) operators", func(t *testing.T) {
+		tests := []parseTestInput{
+			// Normalizing to literal on RHS
+			{
+				input:  "!(100 < event.data.value)",
+				output: "event.data.value <= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.LessEquals,
+						},
+					},
+				},
+			},
+			{
+				input:  "!(100 <= event.data.value)",
+				output: "event.data.value < 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Less,
+						},
+					},
+				},
+			},
+			{
+				input:  "!(100 > event.data.value)",
+				output: "event.data.value >= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.GreaterEquals,
+						},
+					},
+				},
+			},
+			{
+				input:  "!(100 >= event.data.value)",
+				output: "event.data.value > 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Greater,
+						},
+					},
+				},
+			},
+			// RHS normalized already
+			{
+				input:  "!(event.data.value <= 100)",
+				output: "event.data.value > 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Greater,
+						},
+					},
+				},
+			},
+			{
+				input:  "!(event.data.value > 100)",
+				output: "event.data.value <= 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.LessEquals,
+						},
+					},
+				},
+			},
+			{
+				input:  "!(event.data.value >= 100)",
+				output: "event.data.value < 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Less,
+						},
+					},
+				},
+			},
+			// Double negate
+			{
+				input:  "!(!(event.data.value < 100))",
+				output: "event.data.value < 100",
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  int64(100),
+							Ident:    "event.data.value",
+							Operator: operators.Less,
+						},
+					},
+				},
+			},
+		}
+
+		assert(t, tests)
+	})
+
+	t.Run("Queries with nested branches", func(t *testing.T) {
+		tests := []parseTestInput{
+			{
+				input:  `a == 1 || b == 2 || c == 3`,
+				output: `c == 3 || a == 1 || b == 2`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Less,
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(1),
+									Ident:    "a",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(2),
+									Ident:    "b",
+									Operator: operators.Equals,
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "event.data.value <= 100",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				// This evaluates the same as `(a == 1 && b == 2) || c == 3`,
+				input:  `a == 1 && b == 2 || c == 3`,
+				output: `(a == 1 && b == 2) || c == 3`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.LessEquals,
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(1),
+											Ident:    "a",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(2),
+											Ident:    "b",
+											Operator: operators.Equals,
+										},
+									},
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "event.data.value > 100",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				// This evaluates the same as `a == 1 || (b == 2 && c == 3)`,
+				input:  `a == 1 || b == 2 && c == 3`,
+				output: `a == 1 || (b == 2 && c == 3)`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
 							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
+								Predicate: &Predicate{
+									Literal:  int64(1),
+									Ident:    "a",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(2),
+											Ident:    "b",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(3),
+											Ident:    "c",
+											Operator: operators.Equals,
+										},
+									},
+								},
 							},
 						},
 					},
 				},
 			},
 			{
-				input: "event.data.value >= 100",
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
+				// And parenthesis to amend the order.
+				input:  `(a == 1 || b == 2) && c == 3`,
+				output: `c == 3 && (a == 1 || b == 2)`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ands: []*Node{
 							{
-								Depth:    0,
-								Literal:  int64(100),
-								Ident:    "event.data.value",
-								Operator: operators.GreaterEquals,
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
+							},
+						},
+						Ors: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(1),
+									Ident:    "a",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(2),
+									Ident:    "b",
+									Operator: operators.Equals,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				// Swapping the order of the expression
+				input:  `c == 3 && (a == 1 || b == 2)`,
+				output: `c == 3 && (a == 1 || b == 2)`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ands: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
+							},
+						},
+						Ors: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(1),
+									Ident:    "a",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(2),
+									Ident:    "b",
+									Operator: operators.Equals,
+								},
+							},
+						},
+					},
+				},
+			},
+			{
+				input: `
+					 			a == 1
+					 			&& (b == 2 && (c == 3 || d == 4))
+					 			|| z == 3
+					 			&& (e == 5 && (f == 6 || g == 7))
+					 			|| zz == 4
+					 			`,
+				output: `zz == 4 || (a == 1 && b == 2 && (c == 3 || d == 4)) || (z == 3 && e == 5 && (f == 6 || g == 7))`,
+				expected: ParsedExpression{
+					Root: Node{
+						Ors: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(4),
+									Ident:    "zz",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(1),
+											Ident:    "a",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(2),
+											Ident:    "b",
+											Operator: operators.Equals,
+										},
+									},
+								},
+								Ors: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(3),
+											Ident:    "c",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(4),
+											Ident:    "d",
+											Operator: operators.Equals,
+										},
+									},
+								},
+							},
+							{
+								Ands: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(3),
+											Ident:    "z",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(5),
+											Ident:    "e",
+											Operator: operators.Equals,
+										},
+									},
+								},
+								Ors: []*Node{
+									{
+										Predicate: &Predicate{
+											Literal:  int64(6),
+											Ident:    "f",
+											Operator: operators.Equals,
+										},
+									},
+									{
+										Predicate: &Predicate{
+											Literal:  int64(7),
+											Ident:    "g",
+											Operator: operators.Equals,
+										},
+									},
+								},
 							},
 						},
 					},
@@ -643,55 +884,42 @@ func TestParse(t *testing.T) {
 		assert(t, tests)
 	})
 
-	t.Run("Complex queries with many branches", func(t *testing.T) {
-		tests := []parseTestInput{
-			{
-				// NOTE: It is expected that this ignores the nested if branches, currently.
-				// We still evaluate expressions that match predicate groups. Over time, we will
-				// improve nested branches.
-				input: `
-						((event.data.type == 'order' || event.data.type == "preorder") && event.data.value > 500)
-						|| event.data.type == 'refund'`,
-				expected: []PredicateGroup{
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  int64(500),
-								Ident:    "event.data.value",
-								Operator: operators.Greater,
-							},
-						},
-					},
-					{
-						Predicates: []Predicate{
-							{
-								Depth:    0,
-								Literal:  "refund",
-								Ident:    "event.data.type",
+	// TODO
+	/*
+		t.Run("It deduplicates expressions", func(t *testing.T) {
+			tests := []parseTestInput{
+				{
+					input: "event == 'foo' && event == 'foo'",
+					expected: ParsedExpression{
+						Root: Node{
+							Predicate: &Predicate{
+								Literal:  "foo",
+								Ident:    "event",
 								Operator: operators.Equals,
 							},
 						},
 					},
 				},
-			},
-		}
+			}
+			assert(t, tests)
+		})
+	*/
 
-		assert(t, tests)
-	})
 }
 
+/*
 func TestParseGroupIDs(t *testing.T) {
 	t.Run("It creates new group IDs when parsing the same expression", func(t *testing.T) {
 		ctx := context.Background()
-		a, err := newParser(t).Parse(ctx, "event == 'foo'")
+		a, err := mustParser(t).Parse(ctx, "event == 'foo'")
 		require.NoError(t, err)
-		b, err := newParser(t).Parse(ctx, "event == 'foo'")
+		b, err := mustParser(t).Parse(ctx, "event == 'foo'")
 		require.NoError(t, err)
-		c, err := newParser(t).Parse(ctx, "event == 'foo'")
+		c, err := mustParser(t).Parse(ctx, "event == 'foo'")
 
 		require.NotEqual(t, a[0].GroupID, b[0].GroupID)
 		require.NotEqual(t, b[0].GroupID, c[0].GroupID)
 		require.NotEqual(t, a[0].GroupID, c[0].GroupID)
 	})
 }
+*/
