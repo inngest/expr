@@ -26,6 +26,9 @@ github.com/google/cel-go/common/types/traits
 github.com/google/cel-go/interpreter
 github.com/google/cel-go/parser
 github.com/google/cel-go/parser/gen
+# github.com/plar/go-adaptive-radix-tree v1.0.5
+## explicit; go 1.12
+github.com/plar/go-adaptive-radix-tree
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib

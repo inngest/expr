@@ -1,6 +1,8 @@
 package expr
 
-import "context"
+import (
+	"context"
+)
 
 type TreeType int
 
@@ -17,10 +19,11 @@ const (
 // For example, an expression may check string equality using an
 // ART tree, while LTE operations may check against a b+-tree.
 type PredicateTree interface {
-	Add(ctx context.Context, p Predicate) error
+	Add(ctx context.Context, p ExpressionPart) error
+	Search(ctx context.Context, input any) (*Leaf, bool)
 }
 
-// leaf represents the leaf within a tree.  This stores all expressions
+// Leaf represents the leaf within a tree.  This stores all expressions
 // which match the given expression.
 //
 // For example, adding two expressions each matching "event.data == 'foo'"
@@ -29,7 +32,6 @@ type PredicateTree interface {
 //
 // Note that there are many sub-clauses which need to be matched.  Each
 // leaf is a subset of a full expression.  Therefore,
-
 type Leaf struct {
 	Evals []ExpressionPart
 }
@@ -46,5 +48,6 @@ type ExpressionPart struct {
 	//
 	// This lets us determine whether the entire group has been matched.
 	GroupID   groupID
+	Predicate Predicate
 	Evaluable Evaluable
 }

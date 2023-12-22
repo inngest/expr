@@ -65,6 +65,15 @@ type ParsedExpression struct {
 	// Exhaustive bool
 }
 
+// RootGroups returns the top-level matching groups within an expression.  This is a small
+// utility to check the number of matching groups easily.
+func (p ParsedExpression) RootGroups() []*Node {
+	if len(p.Root.Ands) == 0 && len(p.Root.Ors) > 1 {
+		return p.Root.Ors
+	}
+	return []*Node{&p.Root}
+}
+
 // PredicateGroup represents a group of predicates that must all pass in order to execute the
 // given expression.  For example, this might contain two predicates representing an expression
 // with two operators combined with "&&".
@@ -107,6 +116,9 @@ type Node struct {
 }
 
 func (n Node) HasPredicate() bool {
+	if n.Predicate == nil {
+		return false
+	}
 	return n.Predicate.Operator != ""
 }
 

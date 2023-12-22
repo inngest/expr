@@ -13,7 +13,7 @@ import (
 func newTestAggregateEvaluator(t *testing.T) AggregateEvaluator {
 	t.Helper()
 	parser, _ := newParser()
-	return NewAggregateEvaluator(parser)
+	return NewAggregateEvaluator(parser, testBoolEvaluator)
 }
 
 func newParser() (TreeParser, error) {
@@ -54,10 +54,11 @@ func TestParse(t *testing.T) {
 				t,
 				test.expected,
 				*actual,
-				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s",
+				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s\nGroups: %d",
 				test.input,
 				string(a),
 				string(b),
+				len(actual.RootGroups()),
 			)
 		}
 	}
@@ -756,20 +757,11 @@ func TestParse(t *testing.T) {
 			},
 			{
 				// Swapping the order of the expression
-				input:  `c == 3 && (a == 1 || b == 2)`,
-				output: `c == 3 && (a == 1 || b == 2)`,
+				input:  `a == 1 && b == 2 && (c == 3 || d == 4)`,
+				output: `a == 1 && b == 2 && (c == 3 || d == 4)`,
 				expected: ParsedExpression{
 					Root: Node{
 						Ands: []*Node{
-							{
-								Predicate: &Predicate{
-									Literal:  int64(3),
-									Ident:    "c",
-									Operator: operators.Equals,
-								},
-							},
-						},
-						Ors: []*Node{
 							{
 								Predicate: &Predicate{
 									Literal:  int64(1),
@@ -781,6 +773,22 @@ func TestParse(t *testing.T) {
 								Predicate: &Predicate{
 									Literal:  int64(2),
 									Ident:    "b",
+									Operator: operators.Equals,
+								},
+							},
+						},
+						Ors: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(4),
+									Ident:    "d",
 									Operator: operators.Equals,
 								},
 							},
@@ -904,6 +912,46 @@ func TestParse(t *testing.T) {
 			assert(t, tests)
 		})
 	*/
+
+}
+
+func TestRootGroups(t *testing.T) {
+	r := require.New(t)
+	ctx := context.Background()
+	parser, err := newParser()
+
+	r.NoError(err)
+
+	t.Run("With single groups", func(t *testing.T) {
+		actual, err := parser.Parse(ctx, "a == 1")
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+
+		actual, err = parser.Parse(ctx, "a == 1 && b == 2")
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+
+		actual, err = parser.Parse(ctx, "root == 'yes' && (a == 1 || b == 2)")
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+	})
+
+	t.Run("With an or", func(t *testing.T) {
+		actual, err := parser.Parse(ctx, "a == 1 || b == 2")
+		r.NoError(err)
+		r.Equal(2, len(actual.RootGroups()))
+
+		actual, err = parser.Parse(ctx, "a == 1 || b == 2 || c == 3")
+		r.NoError(err)
+		r.Equal(3, len(actual.RootGroups()))
+
+		actual, err = parser.Parse(ctx, "a == 1 && b == 2 || c == 3")
+		r.NoError(err)
+		r.Equal(2, len(actual.RootGroups()))
+	})
 
 }
 
