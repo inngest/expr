@@ -32,6 +32,8 @@ type AggregateEvaluator interface {
 	Remove(ctx context.Context, eval Evaluable) error
 
 	// AggregateMatch returns all expression parts which are evaluable given the input data.
+	//
+	// It does this by iterating through the data,
 	AggregateMatch(ctx context.Context, data map[string]any) ([]ExpressionPart, error)
 
 	// Evaluate checks input data against all exrpesssions in the aggregate in an optimal
@@ -166,6 +168,10 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 }
 
 func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, prefix string) ([]ExpressionPart, error) {
+	// TODO: Flip this.  Instead of iterating through all fields in a potentially large input
+	// array, iterate through all known variables/idents in the aggregate tree to see if
+	// the data has those keys set.
+
 	result := []ExpressionPart{}
 	for k, v := range data {
 		switch cast := v.(type) {

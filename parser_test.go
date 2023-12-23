@@ -10,12 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestAggregateEvaluator(t *testing.T) AggregateEvaluator {
-	t.Helper()
-	parser, _ := newParser()
-	return NewAggregateEvaluator(parser, testBoolEvaluator)
-}
-
 func newEnv() *cel.Env {
 	env, _ := cel.NewEnv(
 		cel.Variable("event", cel.AnyType),

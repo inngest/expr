@@ -2,7 +2,6 @@ package expr
 
 import (
 	"context"
-	"crypto/md5"
 	"fmt"
 	"strconv"
 	"strings"
@@ -270,12 +269,14 @@ type Predicate struct {
 	// variable are being compared, this is nil and LiteralIdent holds a pointer to the
 	// name of the second variable.
 	Literal any
+
+	// Ident is the ident we're comparing to, eg. the variable.
+	Ident string
+
 	// LiteralIdent represents the second literal that we're comparing against,
 	// eg. in the expression "event.data.a == event.data.b this stores event.data.b
 	LiteralIdent *string
 
-	// Ident is the ident we're comparing to, eg. the variable.
-	Ident string
 	// Operator is the binary operator being used.  NOTE:  This always assumes that the
 	// ident is to the left of the operator, eg "event.data.value > 100".  If the value
 	// is to the left of the operator, the operator will be switched
@@ -295,11 +296,6 @@ func (p Predicate) String() string {
 	default:
 		return fmt.Sprintf("%s %s %v", p.Ident, strings.ReplaceAll(p.Operator, "_", ""), lit)
 	}
-}
-
-func (p Predicate) hash() string {
-	sum := md5.Sum([]byte(fmt.Sprintf("%v", p)))
-	return string(sum[:])
 }
 
 func (p Predicate) LiteralAsString() string {

@@ -1,8 +1,8 @@
 package expr
 
 import (
+	"crypto/rand"
 	"encoding/binary"
-	"math/rand"
 )
 
 // groupID represents a group ID.  The first 2 byets are an int16 size of the expression group,
@@ -15,7 +15,7 @@ func (g groupID) Size() uint16 {
 }
 
 func newGroupID(size uint16) groupID {
-	id := make([]byte, 8, 8)
+	id := make([]byte, 8)
 	binary.NativeEndian.PutUint16(id, size)
 	_, _ = rand.Read(id[2:])
 	return [8]byte(id[0:8])

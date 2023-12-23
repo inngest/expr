@@ -40,6 +40,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	// Insert N random matches.
 	for n := 0; n < i; n++ {
 		wg.Add(1)
+		//nolint:all
 		go func() {
 			defer wg.Done()
 			byt := make([]byte, 8)
@@ -78,11 +79,12 @@ func TestEvaluate(t *testing.T) {
 	_, err = e.Add(ctx, expected)
 	require.NoError(t, err)
 
-	n := 1_000
+	n := 100_000
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < n; i++ {
 		wg.Add(1)
+		//nolint:all
 		go func() {
 			defer wg.Done()
 			byt := make([]byte, 8)
@@ -108,7 +110,7 @@ func TestEvaluate(t *testing.T) {
 				},
 			},
 		})
-		total := time.Now().Sub(pre)
+		total := time.Since(pre)
 		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
 		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
 
@@ -128,7 +130,7 @@ func TestEvaluate(t *testing.T) {
 				},
 			},
 		})
-		total := time.Now().Sub(pre)
+		total := time.Since(pre)
 		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
 		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
 
