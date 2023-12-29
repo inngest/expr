@@ -1,8 +1,8 @@
 package expr
 
 import (
-	"crypto/rand"
 	"encoding/binary"
+	"math/rand"
 )
 
 // groupID represents a group ID.  The first 2 byets are an int16 size of the expression group,

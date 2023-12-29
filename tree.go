@@ -49,5 +49,5 @@ type ExpressionPart struct {
 	// This lets us determine whether the entire group has been matched.
 	GroupID   groupID
 	Predicate Predicate
-	Evaluable Evaluable
+	Parsed    *ParsedExpression
 }

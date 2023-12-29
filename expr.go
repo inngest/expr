@@ -56,7 +56,10 @@ type AggregateEvaluator interface {
 	ConstantLen() int
 }
 
-func NewAggregateEvaluator(parser TreeParser, eval ExpressionEvaluator) AggregateEvaluator {
+func NewAggregateEvaluator(
+	parser TreeParser,
+	eval ExpressionEvaluator,
+) AggregateEvaluator {
 	return &aggregator{
 		eval:      eval,
 		parser:    parser,
@@ -81,7 +84,7 @@ type aggregator struct {
 
 	// constants tracks evaluable instances that must always be evaluated, due to
 	// the expression containing non-aggregateable clauses.
-	constants []Evaluable
+	constants []*ParsedExpression
 }
 
 // Len returns the total number of aggregateable and constantly matched expressions
@@ -118,13 +121,17 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// TODO: Concurrently match constant expressions using a semaphore for capacity.
 	for _, expr := range a.constants {
 		atomic.AddInt32(&matched, 1)
-		ok, evalerr := a.eval(ctx, expr, data)
+
+		// NOTE: We don't need to add lifted expression variables,
+		// because match.Parsed.Evaluable() returns the original expression
+		// string.
+		ok, evalerr := a.eval(ctx, expr.Evaluable, data)
 		if evalerr != nil {
 			err = errors.Join(err, evalerr)
 			continue
 		}
 		if ok {
-			result = append(result, expr)
+			result = append(result, expr.Evaluable)
 		}
 	}
 
@@ -138,13 +145,17 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// for each group ID and then skip evaluating expressions if so.
 	for _, match := range matches {
 		atomic.AddInt32(&matched, 1)
-		ok, evalerr := a.eval(ctx, match.Evaluable, data)
+
+		// NOTE: We don't need to add lifted expression variables,
+		// because match.Parsed.Evaluable() returns the original expression
+		// string.
+		ok, evalerr := a.eval(ctx, match.Parsed.Evaluable, data)
 		if evalerr != nil {
 			err = errors.Join(err, evalerr)
 			continue
 		}
 		if ok {
-			result = append(result, match.Evaluable)
+			result = append(result, match.Parsed.Evaluable)
 		}
 	}
 
@@ -189,20 +200,22 @@ func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, pr
 }
 
 func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
-	parsed, err := a.parser.Parse(ctx, eval.Expression())
+	parsed, err := a.parser.Parse(ctx, eval)
 	if err != nil {
 		return false, err
 	}
 
 	aggregateable := true
 	for _, g := range parsed.RootGroups() {
-		ok, err := a.addGroup(ctx, g, eval)
+		ok, err := a.addGroup(ctx, g, parsed)
 		if err != nil {
 			return false, err
 		}
 		if !ok && aggregateable {
 			// Add this expression as a constant once.
-			a.constants = append(a.constants, eval)
+			a.lock.Lock()
+			a.constants = append(a.constants, parsed)
+			a.lock.Unlock()
 			aggregateable = false
 		}
 	}
@@ -214,7 +227,7 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
 	return aggregateable, nil
 }
 
-func (a *aggregator) addGroup(ctx context.Context, node *Node, eval Evaluable) (bool, error) {
+func (a *aggregator) addGroup(ctx context.Context, node *Node, parsed *ParsedExpression) (bool, error) {
 	if len(node.Ors) > 0 {
 		// If there are additional branches, don't bother to add this to the aggregate tree.
 		// Mark this as a non-exhaustive addition and skip immediately.
@@ -246,7 +259,7 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, eval Evaluable) (
 	// items from the same identifier.  If so, the evaluation is true.
 	groupID := newGroupID(uint16(len(all)))
 	for _, n := range all {
-		err := a.addNode(ctx, n, groupID, eval)
+		err := a.addNode(ctx, n, groupID, parsed)
 		if err == errTreeUnimplemented {
 			return false, nil
 		}
@@ -258,7 +271,7 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, eval Evaluable) (
 	return true, nil
 }
 
-func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, eval Evaluable) error {
+func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *ParsedExpression) error {
 	// Don't allow anything to update in parallel.
 	a.lock.Lock()
 	defer a.lock.Unlock()
@@ -273,7 +286,7 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, eval Eva
 		err := tree.Add(ctx, ExpressionPart{
 			GroupID:   gid,
 			Predicate: *n.Predicate,
-			Evaluable: eval,
+			Parsed:    parsed,
 		})
 		if err != nil {
 			return err
@@ -291,6 +304,8 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 
 func isAggregateable(n *Node) bool {
 	if n.Predicate == nil {
+		// This is a parent node.  We skip aggregateable checks and only
+		// return false based off of predicate information.
 		return true
 	}
 	switch n.Predicate.Literal.(type) {
