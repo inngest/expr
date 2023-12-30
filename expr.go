@@ -140,12 +140,11 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err = errors.Join(err, merr)
 	}
 
-	// TODO: Each match here is a success.  When other trees and operators which are walkable
+	// TODO: Each match here is a potential success.  When other trees and operators which are walkable
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
 	// for each group ID and then skip evaluating expressions if so.
 	for _, match := range matches {
 		atomic.AddInt32(&matched, 1)
-
 		// NOTE: We don't need to add lifted expression variables,
 		// because match.Parsed.Evaluable() returns the original expression
 		// string.
@@ -199,7 +198,11 @@ func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, pr
 	return result, nil
 }
 
+// Add adds an Evaluable to the aggregate tree engine for matching.  It returns
+// a boolean indicating whether the expression is suitable for aggregate tree
+// matching, allowing rapid exclusion of non-matching expressions.
 func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
+	// parse the expression using our tree parser.
 	parsed, err := a.parser.Parse(ctx, eval)
 	if err != nil {
 		return false, err
@@ -212,7 +215,8 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
 			return false, err
 		}
 		if !ok && aggregateable {
-			// Add this expression as a constant once.
+			// This is the first time we're seeing a non-aggregateable
+			// group, so add it to the constants list.
 			a.lock.Lock()
 			a.constants = append(a.constants, parsed)
 			a.lock.Unlock()
@@ -308,8 +312,16 @@ func isAggregateable(n *Node) bool {
 		// return false based off of predicate information.
 		return true
 	}
-	switch n.Predicate.Literal.(type) {
+	if n.Predicate.LiteralIdent != nil {
+		// We're matching idents together, so this is not aggregateable.
+		return false
+	}
+
+	switch v := n.Predicate.Literal.(type) {
 	case string:
+		if len(v) == 0 {
+			return false
+		}
 		if n.Predicate.Operator == operators.NotEquals {
 			// NOTE: NotEquals is _not_ supported.  This requires selecting all leaf nodes _except_
 			// a given leaf, iterating over a tree.  We may as well execute every expressiona s the difference
