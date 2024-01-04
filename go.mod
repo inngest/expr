@@ -4,6 +4,7 @@ go 1.21.0
 
 require (
 	github.com/google/cel-go v0.18.2
+	github.com/plar/go-adaptive-radix-tree v1.0.5
 	github.com/stretchr/testify v1.8.4
 )
 

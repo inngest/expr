@@ -10,18 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestAggregateEvaluator(t *testing.T) AggregateEvaluator {
-	t.Helper()
-	parser, _ := newParser()
-	return NewAggregateEvaluator(parser)
-}
-
-func newParser() (TreeParser, error) {
+func newEnv() *cel.Env {
 	env, _ := cel.NewEnv(
 		cel.Variable("event", cel.AnyType),
 		cel.Variable("async", cel.AnyType),
+		cel.Variable("vars", cel.AnyType),
 	)
-	return NewTreeParser(env)
+	return env
+}
+
+func newParser() (TreeParser, error) {
+	return NewTreeParser(EnvParser(newEnv()))
 }
 
 type parseTestInput struct {
@@ -40,7 +39,14 @@ func TestParse(t *testing.T) {
 		for _, test := range tests {
 			parser, err := newParser()
 			require.NoError(t, err)
-			actual, err := parser.Parse(ctx, test.input)
+
+			eval := tex(test.input)
+			actual, err := parser.Parse(ctx, eval)
+
+			// Shortcut to ensure the evaluable instance matches
+			if test.expected.Evaluable == nil {
+				test.expected.Evaluable = eval
+			}
 
 			require.NoError(t, err)
 			require.NotNil(t, actual)
@@ -54,13 +60,37 @@ func TestParse(t *testing.T) {
 				t,
 				test.expected,
 				*actual,
-				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s",
+				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s\nGroups: %d",
 				test.input,
 				string(a),
 				string(b),
+				len(actual.RootGroups()),
 			)
 		}
 	}
+
+	t.Run("It handles ident matching", func(t *testing.T) {
+		ident := "vars.a"
+		_ = ident
+
+		tests := []parseTestInput{
+			{
+				input:  "event == vars.a",
+				output: `event == vars.a`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Ident:        "event",
+							LiteralIdent: &ident,
+							Operator:     operators.Equals,
+						},
+					},
+				},
+			},
+		}
+
+		assert(t, tests)
+	})
 
 	t.Run("It handles basic expressions", func(t *testing.T) {
 		tests := []parseTestInput{
@@ -756,20 +786,11 @@ func TestParse(t *testing.T) {
 			},
 			{
 				// Swapping the order of the expression
-				input:  `c == 3 && (a == 1 || b == 2)`,
-				output: `c == 3 && (a == 1 || b == 2)`,
+				input:  `a == 1 && b == 2 && (c == 3 || d == 4)`,
+				output: `a == 1 && b == 2 && (c == 3 || d == 4)`,
 				expected: ParsedExpression{
 					Root: Node{
 						Ands: []*Node{
-							{
-								Predicate: &Predicate{
-									Literal:  int64(3),
-									Ident:    "c",
-									Operator: operators.Equals,
-								},
-							},
-						},
-						Ors: []*Node{
 							{
 								Predicate: &Predicate{
 									Literal:  int64(1),
@@ -781,6 +802,22 @@ func TestParse(t *testing.T) {
 								Predicate: &Predicate{
 									Literal:  int64(2),
 									Ident:    "b",
+									Operator: operators.Equals,
+								},
+							},
+						},
+						Ors: []*Node{
+							{
+								Predicate: &Predicate{
+									Literal:  int64(3),
+									Ident:    "c",
+									Operator: operators.Equals,
+								},
+							},
+							{
+								Predicate: &Predicate{
+									Literal:  int64(4),
+									Ident:    "d",
 									Operator: operators.Equals,
 								},
 							},
@@ -907,19 +944,142 @@ func TestParse(t *testing.T) {
 
 }
 
-/*
-func TestParseGroupIDs(t *testing.T) {
-	t.Run("It creates new group IDs when parsing the same expression", func(t *testing.T) {
-		ctx := context.Background()
-		a, err := mustParser(t).Parse(ctx, "event == 'foo'")
-		require.NoError(t, err)
-		b, err := mustParser(t).Parse(ctx, "event == 'foo'")
-		require.NoError(t, err)
-		c, err := mustParser(t).Parse(ctx, "event == 'foo'")
+func TestParse_LiftedVars(t *testing.T) {
+	ctx := context.Background()
 
-		require.NotEqual(t, a[0].GroupID, b[0].GroupID)
-		require.NotEqual(t, b[0].GroupID, c[0].GroupID)
-		require.NotEqual(t, a[0].GroupID, c[0].GroupID)
+	cachingCelParser := NewCachingParser(newEnv())
+
+	assert := func(t *testing.T, tests []parseTestInput) {
+		t.Helper()
+
+		for _, test := range tests {
+			parser, err := NewTreeParser(cachingCelParser)
+			require.NoError(t, err)
+			eval := tex(test.input)
+			actual, err := parser.Parse(ctx, eval)
+
+			// Shortcut to ensure the evaluable instance matches
+			if test.expected.Evaluable == nil {
+				test.expected.Evaluable = eval
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, actual)
+
+			require.EqualValues(t, test.output, actual.Root.String(), "String() does not match expected output")
+
+			a, _ := json.MarshalIndent(test.expected, "", " ")
+			b, _ := json.MarshalIndent(actual, "", " ")
+
+			require.EqualValues(
+				t,
+				test.expected,
+				*actual,
+				"Invalid strucutre:\n%s\nExpected: %s\n\nGot: %s\nGroups: %d",
+				test.input,
+				string(a),
+				string(b),
+				len(actual.RootGroups()),
+			)
+		}
+	}
+
+	t.Run("It handles basic expressions", func(t *testing.T) {
+		tests := []parseTestInput{
+			{
+				input:  `event == "foo"`,
+				output: `event == "foo"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "foo",
+							Ident:    "event",
+							Operator: operators.Equals,
+						},
+					},
+					Vars: map[string]any{
+						"a": "foo",
+					},
+				},
+			},
+			{
+				input:  `event == "bar"`,
+				output: `event == "bar"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "bar",
+							Ident:    "event",
+							Operator: operators.Equals,
+						},
+					},
+					Vars: map[string]any{
+						"a": "bar",
+					},
+				},
+			},
+			{
+				input:  `"bar" == event`,
+				output: `event == "bar"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Literal:  "bar",
+							Ident:    "event",
+							Operator: operators.Equals,
+						},
+					},
+					Vars: map[string]any{
+						"a": "bar",
+					},
+				},
+			},
+		}
+
+		assert(t, tests)
+
+		// We should have had one hit, as `event == "bar"` and `event == "foo"`
+		// were lifted into the same expression `event == vars.a`
+		require.EqualValues(t, 1, cachingCelParser.(*cachingParser).Hits())
 	})
 }
-*/
+
+func TestRootGroups(t *testing.T) {
+	r := require.New(t)
+	ctx := context.Background()
+	parser, err := newParser()
+
+	r.NoError(err)
+
+	t.Run("With single groups", func(t *testing.T) {
+		actual, err := parser.Parse(ctx, tex("a == 1"))
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+
+		actual, err = parser.Parse(ctx, tex("a == 1 && b == 2"))
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+
+		actual, err = parser.Parse(ctx, tex("root == 'yes' && (a == 1 || b == 2)"))
+		r.NoError(err)
+		r.Equal(1, len(actual.RootGroups()))
+		r.Equal(&actual.Root, actual.RootGroups()[0])
+	})
+
+	t.Run("With an or", func(t *testing.T) {
+		actual, err := parser.Parse(ctx, tex("a == 1 || b == 2"))
+		r.NoError(err)
+		r.Equal(2, len(actual.RootGroups()))
+
+		actual, err = parser.Parse(ctx, tex("a == 1 || b == 2 || c == 3"))
+		r.NoError(err)
+		r.Equal(3, len(actual.RootGroups()))
+
+		actual, err = parser.Parse(ctx, tex("a == 1 && b == 2 || c == 3"))
+		r.NoError(err)
+		r.Equal(2, len(actual.RootGroups()))
+	})
+
+}

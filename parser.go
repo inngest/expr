@@ -2,7 +2,6 @@ package expr
 
 import (
 	"context"
-	"crypto/md5"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,24 +11,55 @@ import (
 	"github.com/google/cel-go/common/operators"
 )
 
+const (
+	VarPrefix = "vars."
+)
+
 // TreeParser parses an expression into a tree, with a root node and branches for
 // each subsequent OR or AND expression.
 type TreeParser interface {
-	Parse(ctx context.Context, expr string) (*ParsedExpression, error)
+	Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error)
+}
+
+// CELParser represents a CEL parser which takes an expression string
+// and returns a CEL AST, any issues during parsing, and any lifted and replaced
+// from the expression.
+//
+// By default, *cel.Env fulfils this interface.  In production, it's common
+// to provide a caching layer on top of *cel.Env to optimize parsing, as it's
+// the slowest part of the expression process.
+type CELParser interface {
+	Parse(expr string) (*cel.Ast, *cel.Issues, map[string]any)
+}
+
+// EnvParser turns a *cel.Env into a CELParser.
+func EnvParser(env *cel.Env) CELParser {
+	return envparser{env}
+}
+
+type envparser struct {
+	env *cel.Env
+}
+
+func (e envparser) Parse(txt string) (*cel.Ast, *cel.Issues, map[string]any) {
+	ast, iss := e.env.Parse(txt)
+	return ast, iss, nil
 }
 
 // NewTreeParser returns a new tree parser for a given *cel.Env
-func NewTreeParser(env *cel.Env) (TreeParser, error) {
+func NewTreeParser(ep CELParser) (TreeParser, error) {
 	parser := &parser{
-		env: env,
+		ep: ep,
 	}
 	return parser, nil
 }
 
-type parser struct{ env *cel.Env }
+type parser struct {
+	ep CELParser
+}
 
-func (p *parser) Parse(ctx context.Context, expression string) (*ParsedExpression, error) {
-	ast, issues := p.env.Parse(expression)
+func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error) {
+	ast, issues, vars := p.ep.Parse(eval.Expression())
 	if issues != nil {
 		return nil, issues.Err()
 	}
@@ -40,12 +70,18 @@ func (p *parser) Parse(ctx context.Context, expression string) (*ParsedExpressio
 			NavigableExpr: celast.NavigateAST(ast.NativeRep()),
 		},
 		node,
+		vars,
 	)
 	if err != nil {
 		return nil, err
 	}
+
 	node.normalize()
-	return &ParsedExpression{Root: *node}, nil
+	return &ParsedExpression{
+		Root:      *node,
+		Vars:      vars,
+		Evaluable: eval,
+	}, nil
 }
 
 // ParsedExpression represents a parsed CEL expression into our higher-level AST.
@@ -55,6 +91,19 @@ func (p *parser) Parse(ctx context.Context, expression string) (*ParsedExpressio
 type ParsedExpression struct {
 	Root Node
 
+	// Vars represents rewritten literals within the expression.
+	//
+	// This allows us to rewrite eg. `event.data.id == "foo"` into
+	// `event.data.id == vars.a` such that multiple different literals
+	// share the same expression.  Using the same expression allows us
+	// to cache and skip CEL parsing, which is the slowest aspect of
+	// expression matching.
+	//
+	Vars map[string]any
+
+	// Evaluable stores the original evaluable interface that was parsed.
+	Evaluable Evaluable
+
 	// Exhaustive represents whether the parsing is exhaustive, or whether
 	// specific CEL macros or functions were used which are not supported during
 	// parsing.
@@ -63,6 +112,15 @@ type ParsedExpression struct {
 	// traversal.
 	//
 	// Exhaustive bool
+}
+
+// RootGroups returns the top-level matching groups within an expression.  This is a small
+// utility to check the number of matching groups easily.
+func (p ParsedExpression) RootGroups() []*Node {
+	if len(p.Root.Ands) == 0 && len(p.Root.Ors) > 1 {
+		return p.Root.Ors
+	}
+	return []*Node{&p.Root}
 }
 
 // PredicateGroup represents a group of predicates that must all pass in order to execute the
@@ -107,6 +165,9 @@ type Node struct {
 }
 
 func (n Node) HasPredicate() bool {
+	if n.Predicate == nil {
+		return false
+	}
 	return n.Predicate.Operator != ""
 }
 
@@ -204,10 +265,18 @@ func newNode() *Node {
 //
 // This is equivalent to a CEL overload/function/macro.
 type Predicate struct {
-	// Literal represents the literal value that the operator compares against.
+	// Literal represents the literal value that the operator compares against.  If two
+	// variable are being compared, this is nil and LiteralIdent holds a pointer to the
+	// name of the second variable.
 	Literal any
+
 	// Ident is the ident we're comparing to, eg. the variable.
 	Ident string
+
+	// LiteralIdent represents the second literal that we're comparing against,
+	// eg. in the expression "event.data.a == event.data.b this stores event.data.b
+	LiteralIdent *string
+
 	// Operator is the binary operator being used.  NOTE:  This always assumes that the
 	// ident is to the left of the operator, eg "event.data.value > 100".  If the value
 	// is to the left of the operator, the operator will be switched
@@ -216,18 +285,17 @@ type Predicate struct {
 }
 
 func (p Predicate) String() string {
+	lit := p.Literal
+	if p.LiteralIdent != nil {
+		lit = *p.LiteralIdent
+	}
+
 	switch str := p.Literal.(type) {
 	case string:
 		return fmt.Sprintf("%s %s %v", p.Ident, strings.ReplaceAll(p.Operator, "_", ""), strconv.Quote(str))
 	default:
-		return fmt.Sprintf("%s %s %v", p.Ident, strings.ReplaceAll(p.Operator, "_", ""), p.Literal)
+		return fmt.Sprintf("%s %s %v", p.Ident, strings.ReplaceAll(p.Operator, "_", ""), lit)
 	}
-
-}
-
-func (p Predicate) hash() string {
-	sum := md5.Sum([]byte(fmt.Sprintf("%v", p)))
-	return string(sum[:])
 }
 
 func (p Predicate) LiteralAsString() string {
@@ -262,7 +330,7 @@ type expr struct {
 // It does this by iterating through the expression, amending the current `group` until
 // an or expression is found.  When an or expression is found, we create another group which
 // is mutated by the iteration.
-func navigateAST(nav expr, parent *Node) ([]*Node, error) {
+func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
 	// on the very first call to navigateAST, ensure that we set the first node
 	// inside the nodemap.
 	result := []*Node{}
@@ -311,7 +379,7 @@ func navigateAST(nav expr, parent *Node) ([]*Node, error) {
 					newParent := newNode()
 
 					// For each item in the stack, recurse into that AST.
-					_, err := navigateAST(or, newParent)
+					_, err := navigateAST(or, newParent, vars)
 					if err != nil {
 						return nil, err
 					}
@@ -339,7 +407,7 @@ func navigateAST(nav expr, parent *Node) ([]*Node, error) {
 			// We assume that this is being called with an ident as a comparator.
 			// Dependign on the LHS/RHS type, we want to organize the kind into
 			// a specific type of tree.
-			predicate := callToPredicate(item.NavigableExpr, item.negated)
+			predicate := callToPredicate(item.NavigableExpr, item.negated, vars)
 			if predicate == nil {
 				continue
 			}
@@ -396,11 +464,16 @@ func peek(nav expr, operator string) []expr {
 // callToPredicate transforms a function call within an expression (eg `>`) into
 // a Predicate struct for our matching engine.  It ahandles normalization of
 // LHS/RHS plus inversions.
-func callToPredicate(item celast.Expr, negated bool) *Predicate {
+func callToPredicate(item celast.Expr, negated bool, vars map[string]any) *Predicate {
 	fn := item.AsCall().FunctionName()
 	if fn == operators.LogicalAnd || fn == operators.LogicalOr {
 		// Quit early, as we descend into these while iterating through the tree when calling this.
 		return nil
+	}
+
+	// If this is in a negative expression (ie. `!(foo == bar)`), then invert the expression.
+	if negated {
+		fn = invert(fn)
 	}
 
 	args := item.AsCall().Args()
@@ -409,39 +482,100 @@ func callToPredicate(item celast.Expr, negated bool) *Predicate {
 	}
 
 	var (
-		ident   string
-		literal any
+		identA, identB string
+		literal        any
 	)
 
 	for _, item := range args {
 		switch item.Kind() {
 		case celast.IdentKind:
-			ident = item.AsIdent()
+			if identA == "" {
+				identA = item.AsIdent()
+			} else {
+				identB = item.AsIdent()
+			}
 		case celast.LiteralKind:
 			literal = item.AsLiteral().Value()
 		case celast.SelectKind:
 			// This is an expression, ie. "event.data.foo"  Iterate from the root field upwards
 			// to get the full ident.
+			walked := ""
 			for item.Kind() == celast.SelectKind {
 				sel := item.AsSelect()
-				if ident == "" {
-					ident = sel.FieldName()
+				if walked == "" {
+					walked = sel.FieldName()
 				} else {
-					ident = sel.FieldName() + "." + ident
+					walked = sel.FieldName() + "." + walked
 				}
 				item = sel.Operand()
 			}
-			ident = item.AsIdent() + "." + ident
+			walked = item.AsIdent() + "." + walked
+
+			if identA == "" {
+				identA = walked
+			} else {
+				identB = walked
+			}
 		}
 	}
 
-	if ident == "" || literal == nil {
-		return nil
+	if identA != "" && identB != "" {
+		// We're matching two variables together.  Check to see whether any
+		// of these idents have variable data being passed in above.
+		//
+		// This happens when we use a parser which "lifts" variables out of
+		// expressions to improve cache hits.
+		//
+		// Parsing can normalize `event.data.id == "1"` to
+		// `event.data.id == vars.a` && vars["a"] = "1".
+		//
+		// In this case, check to see if we're using a lifted var and, if so,
+		// use the variable as the ident directly.
+		aIsVar := strings.HasPrefix(identA, VarPrefix)
+		bIsVar := strings.HasPrefix(identB, VarPrefix)
+
+		if aIsVar && bIsVar {
+			// Someone is matching two literals together, so.... this,
+			// is quite dumb.
+			//
+			// Do nothing but match on two vars.
+			return &Predicate{
+				LiteralIdent: &identB,
+				Ident:        identA,
+				Operator:     fn,
+			}
+		}
+
+		if aIsVar {
+			if val, ok := vars[strings.TrimPrefix(identA, VarPrefix)]; ok {
+				// Normalize.
+				literal = val
+				identA = identB
+				identB = ""
+			}
+		}
+
+		if bIsVar {
+			if val, ok := vars[strings.TrimPrefix(identB, VarPrefix)]; ok {
+				// Normalize.
+				literal = val
+				identB = ""
+			}
+		}
+
+		if identA != "" && identB != "" {
+			// THese are still idents, so handle them as
+			// variables being compared together.
+			return &Predicate{
+				LiteralIdent: &identB,
+				Ident:        identA,
+				Operator:     fn,
+			}
+		}
 	}
 
-	// If this is in a negative expression (ie. `!(foo == bar)`), then invert the expression.
-	if negated {
-		fn = invert(fn)
+	if identA == "" || literal == nil {
+		return nil
 	}
 
 	// We always assume that the ident is on the LHS.  In the case of comparisons,
@@ -483,7 +617,7 @@ func callToPredicate(item celast.Expr, negated bool) *Predicate {
 
 	return &Predicate{
 		Literal:  literal,
-		Ident:    ident,
+		Ident:    identA,
 		Operator: fn,
 	}
 }
