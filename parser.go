@@ -67,7 +67,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 	node := newNode()
 	_, err := navigateAST(
 		expr{
-			NavigableExpr: celast.NavigateAST(ast.NativeRep()),
+			ast: ast.NativeRep().Expr(),
 		},
 		node,
 		vars,
@@ -318,7 +318,7 @@ func (p Predicate) TreeType() TreeType {
 
 // expr is wrapper around the CEL AST which stores parsing-related data.
 type expr struct {
-	celast.NavigableExpr
+	ast celast.Expr
 
 	// negated is true when this expr is part of a logical not branch,
 	// ie !($expr)
@@ -341,7 +341,7 @@ func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
 		item := stack[0]
 		stack = stack[1:]
 
-		switch item.Kind() {
+		switch item.ast.Kind() {
 		case celast.LiteralKind:
 			// This is a literal. Do nothing, as this is always true.
 		case celast.IdentKind:
@@ -357,17 +357,17 @@ func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
 			// what we're trying to parse, by taking the LHS and RHS of each opeartor then bringing
 			// this up into a tree.
 
-			fn := item.AsCall().FunctionName()
+			fn := item.ast.AsCall().FunctionName()
 
 			// Firstly, if this is a logical not, everything within this branch is negated:
 			// !(a == b).  This flips the negated field, ie !(foo == bar) becomes foo != bar,
 			// whereas !(!(foo == bar)) stays the same.
 			if fn == operators.LogicalNot {
 				// Immediately navigate into this single expression.
-				child := item.Children()[0]
+				astChild := item.ast.AsCall().Args()[0]
 				stack = append(stack, expr{
-					NavigableExpr: child,
-					negated:       !item.negated,
+					ast:     astChild,
+					negated: !item.negated,
 				})
 				continue
 			}
@@ -396,7 +396,7 @@ func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
 
 			// For each &&, create a new child node in the .And field of the current
 			// high-level AST.
-			if item.AsCall().FunctionName() == operators.LogicalAnd {
+			if item.ast.AsCall().FunctionName() == operators.LogicalAnd {
 				stack = append(stack, peek(item, operators.LogicalAnd)...)
 				continue
 			}
@@ -407,7 +407,7 @@ func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
 			// We assume that this is being called with an ident as a comparator.
 			// Dependign on the LHS/RHS type, we want to organize the kind into
 			// a specific type of tree.
-			predicate := callToPredicate(item.NavigableExpr, item.negated, vars)
+			predicate := callToPredicate(item.ast, item.negated, vars)
 			if predicate == nil {
 				continue
 			}
@@ -437,17 +437,17 @@ func peek(nav expr, operator string) []expr {
 		item := stack[0]
 		stack = stack[1:]
 
-		if item.AsCall().FunctionName() == operator {
-			children := item.Children()
+		if item.ast.AsCall().FunctionName() == operator {
+			astChildren := item.ast.AsCall().Args()
 			stack = append(
 				stack,
 				expr{
-					NavigableExpr: children[0],
-					negated:       nav.negated,
+					ast:     astChildren[0],
+					negated: nav.negated,
 				},
 				expr{
-					NavigableExpr: children[1],
-					negated:       nav.negated,
+					ast:     astChildren[1],
+					negated: nav.negated,
 				},
 			)
 			continue

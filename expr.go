@@ -107,13 +107,6 @@ func (a aggregator) ConstantLen() int {
 }
 
 func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evaluable, int32, error) {
-	// on event entered:
-	//
-	// 1. load pauses
-	// 2. pass event, pauses to aggregator
-	// 3. load nodes for pause, if none, run expression
-	// 4. evaluate tree nodes for pause against data, if ok, run expression
-
 	var (
 		err     error
 		matched = int32(0)
@@ -171,6 +164,9 @@ func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, pr
 	// TODO: Flip this.  Instead of iterating through all fields in a potentially large input
 	// array, iterate through all known variables/idents in the aggregate tree to see if
 	// the data has those keys set.
+	//
+	// Also, we should iterate through the expression in a top-down order, ensuring that if
+	// any of the top groups fail to match we quit early.
 
 	result := []ExpressionPart{}
 	for k, v := range data {
