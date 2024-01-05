@@ -115,7 +115,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// TODO: Concurrently match constant expressions using a semaphore for capacity.
 	for _, expr := range a.constants {
 		atomic.AddInt32(&matched, 1)
-
 		// NOTE: We don't need to add lifted expression variables,
 		// because match.Parsed.Evaluable() returns the original expression
 		// string.
