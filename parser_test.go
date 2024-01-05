@@ -45,11 +45,12 @@ func TestParse(t *testing.T) {
 		t.Helper()
 
 		for _, test := range tests {
-			parser, err := newParser()
+			p, err := newParser()
+			p.(*parser).rander = rander
 			require.NoError(t, err)
 
 			eval := tex(test.input)
-			actual, err := parser.Parse(ctx, eval)
+			actual, err := p.Parse(ctx, eval)
 
 			require.NotNil(t, actual.Root.GroupID)
 
@@ -1092,10 +1093,12 @@ func TestParse_LiftedVars(t *testing.T) {
 		t.Helper()
 
 		for _, test := range tests {
-			parser, err := NewTreeParser(cachingCelParser)
+			p, err := NewTreeParser(cachingCelParser)
+			// overwrite rander so that the parser uses the same nil bytes
+			p.(*parser).rander = rander
 			require.NoError(t, err)
 			eval := tex(test.input)
-			actual, err := parser.Parse(ctx, eval)
+			actual, err := p.Parse(ctx, eval)
 
 			// Shortcut to ensure the evaluable instance matches
 			if test.expected.Evaluable == nil {

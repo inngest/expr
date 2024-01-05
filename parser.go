@@ -2,7 +2,10 @@ package expr
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 
@@ -52,12 +55,25 @@ func NewTreeParser(ep CELParser) (TreeParser, error) {
 
 type parser struct {
 	ep CELParser
+
+	rander RandomReader
 }
 
 func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error) {
 	ast, issues, vars := p.ep.Parse(eval.Expression())
 	if issues != nil {
 		return nil, issues.Err()
+	}
+
+	if p.rander == nil {
+		// Create a new deterministic random reader based off of the evaluable's identifier.
+		// This means that every time we parse an expression with the given identifier, the
+		// group IDs will be deterministic as the randomness is sourced from the ID.
+		//
+		// We only overwrite this if rander is not nil so that we can inject rander during tests.
+		digest := sha256.Sum256([]byte(eval.Identifier()))
+		seed := int64(binary.NativeEndian.Uint64(digest[:8]))
+		p.rander = rand.New(rand.NewSource(seed)).Read
 	}
 
 	node := newNode()
@@ -67,6 +83,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		},
 		node,
 		vars,
+		p.rander,
 	)
 	if err != nil {
 		return nil, err
@@ -327,7 +344,7 @@ type expr struct {
 // It does this by iterating through the expression, amending the current `group` until
 // an or expression is found.  When an or expression is found, we create another group which
 // is mutated by the iteration.
-func navigateAST(nav expr, parent *Node, vars LiftedArgs) ([]*Node, error) {
+func navigateAST(nav expr, parent *Node, vars LiftedArgs, rand RandomReader) ([]*Node, error) {
 	// on the very first call to navigateAST, ensure that we set the first node
 	// inside the nodemap.
 	result := []*Node{}
@@ -376,7 +393,7 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs) ([]*Node, error) {
 					newParent := newNode()
 
 					// For each item in the stack, recurse into that AST.
-					_, err := navigateAST(or, newParent, vars)
+					_, err := navigateAST(or, newParent, vars, rand)
 					if err != nil {
 						return nil, err
 					}
@@ -428,7 +445,7 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs) ([]*Node, error) {
 		total += 1
 	}
 
-	parent.GroupID = newGroupID(uint16(total))
+	parent.GroupID = newGroupIDWithReader(uint16(total), rand)
 	// For each sub-group, add the same group IDs to children if there's no nesting.
 	for n, item := range parent.Ands {
 		if len(item.Ands) == 0 && len(item.Ors) == 0 && item.Predicate != nil {

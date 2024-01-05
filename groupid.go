@@ -13,6 +13,8 @@ type groupID [8]byte
 
 var rander = rand.Read
 
+type RandomReader func(p []byte) (n int, err error)
+
 func (g groupID) String() string {
 	return hex.EncodeToString(g[:])
 }
@@ -22,6 +24,10 @@ func (g groupID) Size() uint16 {
 }
 
 func newGroupID(size uint16) groupID {
+	return newGroupIDWithReader(size, rander)
+}
+
+func newGroupIDWithReader(size uint16, rander RandomReader) groupID {
 	id := make([]byte, 8)
 	binary.NativeEndian.PutUint16(id, size)
 	_, _ = rander(id[2:])

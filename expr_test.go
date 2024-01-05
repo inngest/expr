@@ -427,6 +427,7 @@ func TestAdd(t *testing.T) {
 type tex string
 
 func (e tex) Expression() string { return string(e) }
+func (e tex) Identifier() string { return string(e) }
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {
 	env, _ := cel.NewEnv(

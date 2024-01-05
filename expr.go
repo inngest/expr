@@ -70,6 +70,11 @@ func NewAggregateEvaluator(
 }
 
 type Evaluable interface {
+	// Identifier returns a unique identifier for the evaluable item.  If there are
+	// two instances of the same expression, the identifier should return a unique
+	// string for each instance of the expression (eg. for two pauses).
+	Identifier() string
+
 	// Expression returns an expression as a raw string.
 	Expression() string
 }
