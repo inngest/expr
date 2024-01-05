@@ -32,6 +32,14 @@ type parseTestInput struct {
 func TestParse(t *testing.T) {
 	ctx := context.Background()
 
+	origRander := rander
+	rander = func(b []byte) (n int, err error) {
+		return 0, nil
+	}
+	t.Cleanup(func() {
+		rander = origRander
+	})
+
 	// helper function to assert each case.
 	assert := func(t *testing.T, tests []parseTestInput) {
 		t.Helper()
@@ -42,6 +50,8 @@ func TestParse(t *testing.T) {
 
 			eval := tex(test.input)
 			actual, err := parser.Parse(ctx, eval)
+
+			require.NotNil(t, actual.Root.GroupID)
 
 			// Shortcut to ensure the evaluable instance matches
 			if test.expected.Evaluable == nil {
@@ -76,6 +86,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.ids[2] == "a"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Ident:    "event.data.ids[2]",
 							Literal:  "a",
@@ -89,6 +100,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.ids[2].id == "a"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Ident:    "event.data.ids[2].id",
 							Literal:  "a",
@@ -111,6 +123,7 @@ func TestParse(t *testing.T) {
 				output: `event == vars.a`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Ident:        "event",
 							LiteralIdent: &ident,
@@ -131,6 +144,7 @@ func TestParse(t *testing.T) {
 				output: `event == "foo"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "foo",
 							Ident:    "event",
@@ -144,6 +158,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.run_id == "xyz"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "xyz",
 							Ident:    "event.data.run_id",
@@ -158,8 +173,10 @@ func TestParse(t *testing.T) {
 				output: `event.data.id == "foo" && event.data.value > 100`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(2),
 						Ands: []*Node{
 							{
+								GroupID: newGroupID(2),
 								Predicate: &Predicate{
 									Literal:  "foo",
 									Ident:    "event.data.id",
@@ -167,6 +184,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(2),
 								Predicate: &Predicate{
 									Literal:  int64(100),
 									Ident:    "event.data.value",
@@ -182,8 +200,10 @@ func TestParse(t *testing.T) {
 				output: `event.data.float <= 3.141 && event.data.id == "foo" && event.data.value > 100`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(3),
 						Ands: []*Node{
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  3.141,
 									Ident:    "event.data.float",
@@ -191,6 +211,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  "foo",
 									Ident:    "event.data.id",
@@ -198,6 +219,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  int64(100),
 									Ident:    "event.data.value",
@@ -220,6 +242,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.a != "a"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "a",
 							Ident:    "event.data.a",
@@ -233,6 +256,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.a == "a"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "a",
 							Ident:    "event.data.a",
@@ -253,6 +277,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.id >= "ulid"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "ulid",
 							Ident:    "event.data.id",
@@ -266,6 +291,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.id < "ulid"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "ulid",
 							Ident:    "event.data.id",
@@ -279,6 +305,7 @@ func TestParse(t *testing.T) {
 				output: `event.data.a != "a"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "a",
 							Ident:    "event.data.a",
@@ -299,8 +326,10 @@ func TestParse(t *testing.T) {
 				output: `event == "foo" || event == "bar"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "foo",
 									Ident:    "event",
@@ -308,6 +337,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "bar",
 									Ident:    "event",
@@ -323,8 +353,10 @@ func TestParse(t *testing.T) {
 				output: `event == "foo" || event == "bar"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "foo",
 									Ident:    "event",
@@ -332,6 +364,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "bar",
 									Ident:    "event",
@@ -347,9 +380,11 @@ func TestParse(t *testing.T) {
 				output: `a == 1 || (b == 2 && b != 3)`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							// Either
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(1),
 									Ident:    "a",
@@ -357,8 +392,10 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(2),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(2),
 											Ident:    "b",
@@ -366,6 +403,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(3),
 											Ident:    "b",
@@ -383,8 +421,10 @@ func TestParse(t *testing.T) {
 				output: `event == "baz" || event == "foo" || event == "bar"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "baz",
 									Ident:    "event",
@@ -392,6 +432,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "foo",
 									Ident:    "event",
@@ -399,6 +440,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "bar",
 									Ident:    "event",
@@ -415,10 +457,13 @@ func TestParse(t *testing.T) {
 
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(2),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  "order",
 											Ident:    "event.data.type",
@@ -426,6 +471,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(500),
 											Ident:    "event.data.value",
@@ -435,6 +481,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  "preorder",
 									Ident:    "event.data.type",
@@ -458,6 +505,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value > 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -471,6 +519,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value >= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -484,6 +533,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value < 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -497,6 +547,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value <= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -511,6 +562,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value < 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -524,6 +576,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value <= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -537,6 +590,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value > 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -550,6 +604,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value >= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -571,6 +626,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value <= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -584,6 +640,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value < 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -597,6 +654,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value >= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -610,6 +668,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value > 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -624,6 +683,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value > 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -637,6 +697,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value <= 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -650,6 +711,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value < 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -664,6 +726,7 @@ func TestParse(t *testing.T) {
 				output: "event.data.value < 100",
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  int64(100),
 							Ident:    "event.data.value",
@@ -684,8 +747,10 @@ func TestParse(t *testing.T) {
 				output: `c == 3 || a == 1 || b == 2`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(3),
 									Ident:    "c",
@@ -693,6 +758,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(1),
 									Ident:    "a",
@@ -700,6 +766,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(2),
 									Ident:    "b",
@@ -716,10 +783,13 @@ func TestParse(t *testing.T) {
 				output: `(a == 1 && b == 2) || c == 3`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(2),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(1),
 											Ident:    "a",
@@ -727,6 +797,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(2),
 											Ident:    "b",
@@ -736,6 +807,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(3),
 									Ident:    "c",
@@ -752,8 +824,10 @@ func TestParse(t *testing.T) {
 				output: `a == 1 || (b == 2 && c == 3)`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(1),
 									Ident:    "a",
@@ -761,8 +835,10 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(2),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(2),
 											Ident:    "b",
@@ -770,6 +846,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(2),
 										Predicate: &Predicate{
 											Literal:  int64(3),
 											Ident:    "c",
@@ -788,8 +865,10 @@ func TestParse(t *testing.T) {
 				output: `c == 3 && (a == 1 || b == 2)`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(2),
 						Ands: []*Node{
 							{
+								GroupID: newGroupID(2),
 								Predicate: &Predicate{
 									Literal:  int64(3),
 									Ident:    "c",
@@ -799,6 +878,7 @@ func TestParse(t *testing.T) {
 						},
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(2),
 								Predicate: &Predicate{
 									Literal:  int64(1),
 									Ident:    "a",
@@ -806,6 +886,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(2),
 								Predicate: &Predicate{
 									Literal:  int64(2),
 									Ident:    "b",
@@ -822,8 +903,10 @@ func TestParse(t *testing.T) {
 				output: `a == 1 && b == 2 && (c == 3 || d == 4)`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(3),
 						Ands: []*Node{
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  int64(1),
 									Ident:    "a",
@@ -831,6 +914,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  int64(2),
 									Ident:    "b",
@@ -840,6 +924,7 @@ func TestParse(t *testing.T) {
 						},
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  int64(3),
 									Ident:    "c",
@@ -847,6 +932,7 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Predicate: &Predicate{
 									Literal:  int64(4),
 									Ident:    "d",
@@ -868,8 +954,10 @@ func TestParse(t *testing.T) {
 				output: `zz == 4 || (a == 1 && b == 2 && (c == 3 || d == 4)) || (z == 3 && e == 5 && (f == 6 || g == 7))`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Ors: []*Node{
 							{
+								GroupID: newGroupID(1),
 								Predicate: &Predicate{
 									Literal:  int64(4),
 									Ident:    "zz",
@@ -877,8 +965,10 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(1),
 											Ident:    "a",
@@ -886,6 +976,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(2),
 											Ident:    "b",
@@ -895,6 +986,7 @@ func TestParse(t *testing.T) {
 								},
 								Ors: []*Node{
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(3),
 											Ident:    "c",
@@ -902,6 +994,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(4),
 											Ident:    "d",
@@ -911,8 +1004,10 @@ func TestParse(t *testing.T) {
 								},
 							},
 							{
+								GroupID: newGroupID(3),
 								Ands: []*Node{
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(3),
 											Ident:    "z",
@@ -920,6 +1015,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(5),
 											Ident:    "e",
@@ -929,6 +1025,7 @@ func TestParse(t *testing.T) {
 								},
 								Ors: []*Node{
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(6),
 											Ident:    "f",
@@ -936,6 +1033,7 @@ func TestParse(t *testing.T) {
 										},
 									},
 									{
+										GroupID: newGroupID(3),
 										Predicate: &Predicate{
 											Literal:  int64(7),
 											Ident:    "g",
@@ -951,6 +1049,7 @@ func TestParse(t *testing.T) {
 		}
 
 		assert(t, tests)
+
 	})
 
 	// TODO
@@ -973,11 +1072,19 @@ func TestParse(t *testing.T) {
 			assert(t, tests)
 		})
 	*/
-
 }
 
 func TestParse_LiftedVars(t *testing.T) {
 	ctx := context.Background()
+
+	origRander := rander
+	// In tests, don't add any random data to group IDs.
+	rander = func(b []byte) (n int, err error) {
+		return 0, nil
+	}
+	t.Cleanup(func() {
+		rander = origRander
+	})
 
 	cachingCelParser := NewCachingParser(newEnv(), nil)
 
@@ -1026,6 +1133,7 @@ func TestParse_LiftedVars(t *testing.T) {
 				output: `event == "foo"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "foo",
 							Ident:    "event",
@@ -1042,6 +1150,7 @@ func TestParse_LiftedVars(t *testing.T) {
 				output: `event == "bar"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "bar",
 							Ident:    "event",
@@ -1058,6 +1167,7 @@ func TestParse_LiftedVars(t *testing.T) {
 				output: `event == "bar"`,
 				expected: ParsedExpression{
 					Root: Node{
+						GroupID: newGroupID(1),
 						Predicate: &Predicate{
 							Literal:  "bar",
 							Ident:    "event",

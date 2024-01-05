@@ -137,12 +137,21 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
 	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
 	// ID's length.
+	seen := map[groupID]struct{}{}
+
 	for _, match := range matches {
+		if _, ok := seen[match.GroupID]; ok {
+			continue
+		}
+
 		atomic.AddInt32(&matched, 1)
 		// NOTE: We don't need to add lifted expression variables,
 		// because match.Parsed.Evaluable() returns the original expression
 		// string.
 		ok, evalerr := a.eval(ctx, match.Parsed.Evaluable, data)
+
+		seen[match.GroupID] = struct{}{}
+
 		if evalerr != nil {
 			err = errors.Join(err, evalerr)
 			continue
@@ -160,6 +169,12 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 	a.lock.RLock()
 	defer a.lock.RUnlock()
+
+	// Store the number of times each GroupID has found a match.  We need at least
+	// as many matches as stored in the group ID to consider the match.
+	counts := map[groupID]int{}
+	// Store all expression parts per group ID for returning.
+	found := map[groupID][]ExpressionPart{}
 
 	// Iterate through all known variables/idents in the aggregate tree to see if
 	// the data has those keys set.  If so, we can immediately evaluate the data with
@@ -179,14 +194,30 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 		switch cast := res[0].(type) {
 		case string:
-			found, ok := tree.Search(ctx, cast)
+			all, ok := tree.Search(ctx, cast)
 			if !ok {
 				continue
 			}
-			result = append(result, found.Evals...)
+
+			for _, eval := range all.Evals {
+				counts[eval.GroupID] += 1
+				if _, ok := found[eval.GroupID]; !ok {
+					found[eval.GroupID] = []ExpressionPart{}
+				}
+				found[eval.GroupID] = append(found[eval.GroupID], eval)
+			}
 		default:
 			continue
 		}
+	}
+
+	for k, count := range counts {
+		if int(k.Size()) > count {
+			// The GroupID required more comparisons to equate to true than
+			// we had, so this could never evaluate to true.  Skip this.
+			continue
+		}
+		result = append(result, found[k]...)
 	}
 
 	return result, nil
@@ -238,16 +269,26 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, parsed *ParsedExp
 		return false, nil
 	}
 
-	// Merge all of the nodes together and check whether each node is aggregateable.
-	all := append(node.Ands, node)
-	for _, n := range all {
-		if !n.HasPredicate() || len(n.Ors) > 0 {
-			// Don't handle sub-branching for now.
+	if len(node.Ands) > 0 {
+		for _, n := range node.Ands {
+			if !n.HasPredicate() || len(n.Ors) > 0 {
+				// Don't handle sub-branching for now.
+				return false, nil
+			}
+			if !isAggregateable(n) {
+				return false, nil
+			}
+		}
+	}
+
+	all := node.Ands
+
+	if node.Predicate != nil {
+		if !isAggregateable(node) {
 			return false, nil
 		}
-		if !isAggregateable(n) {
-			return false, nil
-		}
+		// Merge all of the nodes together and check whether each node is aggregateable.
+		all = append(node.Ands, node)
 	}
 
 	// Create a new group ID which tracks the number of expressions that must match
@@ -258,9 +299,8 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, parsed *ParsedExp
 	// When checking an incoming event, we match the event against each node's
 	// ident/variable.  Using the group ID, we can see if we've matched N necessary
 	// items from the same identifier.  If so, the evaluation is true.
-	groupID := newGroupID(uint16(len(all)))
 	for _, n := range all {
-		err := a.addNode(ctx, n, groupID, parsed)
+		err := a.addNode(ctx, n, parsed)
 		if err == errTreeUnimplemented {
 			return false, nil
 		}
@@ -272,7 +312,7 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, parsed *ParsedExp
 	return true, nil
 }
 
-func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *ParsedExpression) error {
+func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
 	// Don't allow anything to update in parallel.  This enrues that Add() can be called
 	// concurrently.
 	a.lock.Lock()
@@ -286,7 +326,7 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *
 			tree = newArtTree()
 		}
 		err := tree.Add(ctx, ExpressionPart{
-			GroupID:   gid,
+			GroupID:   n.GroupID,
 			Predicate: *n.Predicate,
 			Parsed:    parsed,
 		})
@@ -302,12 +342,9 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *
 func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 	// parse the expression using our tree parser.
 	parsed, err := a.parser.Parse(ctx, eval)
+	_ = parsed
 	if err != nil {
 		return err
-	}
-
-	for _, g := range parsed.RootGroups() {
-		_ = g
 	}
 
 	return fmt.Errorf("not implemented")

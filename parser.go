@@ -136,6 +136,8 @@ func (p ParsedExpression) RootGroups() []*Node {
 // This requres A *and* either B or C, and so we require all ANDs plus at least one node
 // from OR to evaluate to true
 type Node struct {
+	GroupID groupID
+
 	// Ands contains predicates at this level of the expression that are joined together
 	// with an && operator.  All nodes in this set must evaluate to true in order for this
 	// node in the expression to be truthy.
@@ -416,6 +418,31 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs) ([]*Node, error) {
 	}
 
 	parent.Ands = result
+
+	// Add a group ID to the parent.
+	total := len(parent.Ands)
+	if parent.Predicate != nil {
+		total += 1
+	}
+	if len(parent.Ors) >= 1 {
+		total += 1
+	}
+
+	parent.GroupID = newGroupID(uint16(total))
+	// For each sub-group, add the same group IDs to children if there's no nesting.
+	for n, item := range parent.Ands {
+		if len(item.Ands) == 0 && len(item.Ors) == 0 && item.Predicate != nil {
+			item.GroupID = parent.GroupID
+			parent.Ands[n] = item
+		}
+	}
+	for n, item := range parent.Ors {
+		if len(item.Ands) == 0 && len(item.Ors) == 0 && item.Predicate != nil {
+			item.GroupID = parent.GroupID
+			parent.Ors[n] = item
+		}
+	}
+
 	return result, nil
 }
 
