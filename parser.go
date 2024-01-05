@@ -446,7 +446,12 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs, rand RandomReader) ([]
 	}
 
 	parent.GroupID = newGroupIDWithReader(uint16(total), rand)
+
 	// For each sub-group, add the same group IDs to children if there's no nesting.
+	//
+	// We do this so that the parent node which contains all ANDs can correctly set
+	// the same group ID for all child predicates.  This is necessasry;  if you compare
+	// A && B && C, we want all of A/B/C to share the same group ID
 	for n, item := range parent.Ands {
 		if len(item.Ands) == 0 && len(item.Ors) == 0 && item.Predicate != nil {
 			item.GroupID = parent.GroupID
