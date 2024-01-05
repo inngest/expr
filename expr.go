@@ -270,7 +270,8 @@ func (a *aggregator) addGroup(ctx context.Context, node *Node, parsed *ParsedExp
 }
 
 func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *ParsedExpression) error {
-	// Don't allow anything to update in parallel.
+	// Don't allow anything to update in parallel.  This enrues that Add() can be called
+	// concurrently.
 	a.lock.Lock()
 	defer a.lock.Unlock()
 

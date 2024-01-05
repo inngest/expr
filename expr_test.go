@@ -159,6 +159,54 @@ func TestEvaluate(t *testing.T) {
 	})
 }
 
+func TestEvaluate_Concurrently(t *testing.T) {
+	ctx := context.Background()
+	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
+	require.NoError(t, err)
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	_, err = e.Add(ctx, expected)
+	require.NoError(t, err)
+
+	go func() {
+		for i := 0; i < 1_000; i++ {
+			//nolint:all
+			go func() {
+				byt := make([]byte, 8)
+				_, err := rand.Read(byt)
+				require.NoError(t, err)
+				str := hex.EncodeToString(byt)
+				_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
+				require.NoError(t, err)
+			}()
+		}
+	}()
+
+	t.Run("It matches items", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		for i := 0; i <= 100; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				evals, matched, err := e.Evaluate(ctx, map[string]any{
+					"event": map[string]any{
+						"data": map[string]any{
+							"account_id": "yes",
+							"match":      "true",
+						},
+					},
+				})
+				require.NoError(t, err)
+				require.EqualValues(t, 1, matched)
+				require.EqualValues(t, []Evaluable{expected}, evals)
+			}()
+		}
+		wg.Wait()
+	})
+
+}
+
 func TestEvaluate_ArrayIndexes(t *testing.T) {
 	ctx := context.Background()
 	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
