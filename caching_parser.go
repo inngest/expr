@@ -1,30 +1,32 @@
 package expr
 
 import (
-	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/cel-go/cel"
-	// "github.com/karlseguin/ccache/v2"
+	"github.com/karlseguin/ccache/v2"
 )
 
 var (
+	CacheTime = time.Hour
+
 	replace = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"}
 )
 
 // NewCachingParser returns a CELParser which lifts quoted literals out of the expression
 // as variables and uses caching to cache expression parsing, resulting in improved
 // performance when parsing expressions.
-func NewCachingParser(env *cel.Env) CELParser {
+func NewCachingParser(env *cel.Env, cache *ccache.Cache) CELParser {
 	return &cachingParser{
-		env: env,
+		cache: cache,
+		env:   env,
 	}
 }
 
 type cachingParser struct {
 	// cache is a global cache of precompiled expressions.
-	// cache *ccache.Cache
-	stupidNoInternetCache sync.Map
+	cache *ccache.Cache
 
 	env *cel.Env
 
@@ -33,22 +35,26 @@ type cachingParser struct {
 }
 
 func (c *cachingParser) Parse(expr string) (*cel.Ast, *cel.Issues, LiftedArgs) {
+	if c.cache == nil {
+		c.cache = ccache.New(ccache.Configure())
+	}
+
 	expr, vars := liftLiterals(expr)
 
-	// TODO: ccache, when I have internet.
-	if cached, ok := c.stupidNoInternetCache.Load(expr); ok {
-		p := cached.(ParsedCelExpr)
+	if cached := c.cache.Get(expr); cached != nil {
+		cached.Extend(CacheTime)
+		p := cached.Value().(ParsedCelExpr)
 		atomic.AddInt64(&c.hits, 1)
 		return p.AST, p.Issues, vars
 	}
 
 	ast, issues := c.env.Parse(expr)
 
-	c.stupidNoInternetCache.Store(expr, ParsedCelExpr{
+	c.cache.Set(expr, ParsedCelExpr{
 		Expr:   expr,
 		AST:    ast,
 		Issues: issues,
-	})
+	}, CacheTime)
 
 	atomic.AddInt64(&c.misses, 1)
 	return ast, issues, vars

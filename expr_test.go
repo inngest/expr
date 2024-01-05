@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BenchmarkCachingEvaluate1_000(b *testing.B) { benchEval(1_000, NewCachingParser(newEnv()), b) }
+func BenchmarkCachingEvaluate1_000(b *testing.B) {
+	benchEval(1_000, NewCachingParser(newEnv(), nil), b)
+}
 
 // func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
 
@@ -71,7 +73,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 
 func TestEvaluate(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv()))
+	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
 	require.NoError(t, err)
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
@@ -159,7 +161,7 @@ func TestEvaluate(t *testing.T) {
 
 func TestEvaluate_ArrayIndexes(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv()))
+	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
 	require.NoError(t, err)
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
