@@ -70,7 +70,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 
 func TestEvaluate(t *testing.T) {
 	ctx := context.Background()
-	parser, err := newParser()
+	parser, err := NewTreeParser(NewCachingParser(newEnv()))
 	require.NoError(t, err)
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 

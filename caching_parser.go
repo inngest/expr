@@ -2,8 +2,6 @@ package expr
 
 import (
 	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -13,12 +11,8 @@ import (
 
 var (
 	doubleQuoteMatch *regexp.Regexp
-	replace          = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}
+	replace          = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"}
 )
-
-func init() {
-	doubleQuoteMatch = regexp.MustCompile(`"[^"]*"`)
-}
 
 // NewCachingParser returns a CELParser which lifts quoted literals out of the expression
 // as variables and uses caching to cache expression parsing, resulting in improved
@@ -40,43 +34,7 @@ type cachingParser struct {
 	misses int64
 }
 
-// liftLiterals lifts quoted literals into variables, allowing us to normalize
-// expressions to increase cache hit rates.
-func liftLiterals(expr string) (string, map[string]any) {
-	// TODO: Optimize this please.  Use strconv.Unquote as the basis, and perform
-	// searches across each index quotes.
-
-	// If this contains an escape sequence (eg. `\` or `\'`), skip the lifting
-	// of literals out of the expression.
-	if strings.Contains(expr, `\"`) || strings.Contains(expr, `\'`) {
-		return expr, nil
-	}
-
-	var (
-		counter int
-		vars    = map[string]any{}
-	)
-
-	rewrite := func(str string) string {
-		if counter > len(replace) {
-			return str
-		}
-
-		idx := replace[counter]
-		if val, err := strconv.Unquote(str); err == nil {
-			str = val
-		}
-		vars[idx] = str
-
-		counter++
-		return VarPrefix + idx
-	}
-
-	expr = doubleQuoteMatch.ReplaceAllStringFunc(expr, rewrite)
-	return expr, vars
-}
-
-func (c *cachingParser) Parse(expr string) (*cel.Ast, *cel.Issues, map[string]any) {
+func (c *cachingParser) Parse(expr string) (*cel.Ast, *cel.Issues, LiftedArgs) {
 	expr, vars := liftLiterals(expr)
 
 	// TODO: ccache, when I have internet.

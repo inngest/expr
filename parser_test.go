@@ -997,7 +997,7 @@ func TestParse_LiftedVars(t *testing.T) {
 							Operator: operators.Equals,
 						},
 					},
-					Vars: map[string]any{
+					Vars: regularArgMap{
 						"a": "foo",
 					},
 				},
@@ -1013,7 +1013,7 @@ func TestParse_LiftedVars(t *testing.T) {
 							Operator: operators.Equals,
 						},
 					},
-					Vars: map[string]any{
+					Vars: regularArgMap{
 						"a": "bar",
 					},
 				},
@@ -1029,7 +1029,7 @@ func TestParse_LiftedVars(t *testing.T) {
 							Operator: operators.Equals,
 						},
 					},
-					Vars: map[string]any{
+					Vars: regularArgMap{
 						"a": "bar",
 					},
 				},
