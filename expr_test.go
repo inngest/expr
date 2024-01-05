@@ -14,8 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BenchmarkCachingEvaluate1_000(b *testing.B)    { benchEval(1_000, NewCachingParser(newEnv()), b) }
-func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
+func BenchmarkCachingEvaluate1_000(b *testing.B) { benchEval(1_000, NewCachingParser(newEnv()), b) }
+
+// func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
 
 func benchEval(i int, p CELParser, b *testing.B) {
 	for n := 0; n < b.N; n++ {

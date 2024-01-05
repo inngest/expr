@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/google/cel-go/common/operators"
+	"github.com/ohler55/ojg/jp"
 )
 
 // errTreeUnimplemented is used while we develop the aggregate tree library when trees
@@ -31,11 +32,6 @@ type AggregateEvaluator interface {
 	// Remove removes an expression from the aggregate evaluator
 	Remove(ctx context.Context, eval Evaluable) error
 
-	// AggregateMatch returns all expression parts which are evaluable given the input data.
-	//
-	// It does this by iterating through the data,
-	AggregateMatch(ctx context.Context, data map[string]any) ([]ExpressionPart, error)
-
 	// Evaluate checks input data against all exrpesssions in the aggregate in an optimal
 	// manner, only evaluating expressions when necessary (based off of tree matching).
 	//
@@ -45,6 +41,9 @@ type AggregateEvaluator interface {
 	// Evaluate returns all matching Evaluables, plus the total number of evaluations
 	// executed.
 	Evaluate(ctx context.Context, data map[string]any) ([]Evaluable, int32, error)
+
+	// AggregateMatch returns all expression parts which are evaluable given the input data.
+	AggregateMatch(ctx context.Context, data map[string]any) ([]ExpressionPart, error)
 
 	// Len returns the total number of aggregateable and constantly matched expressions
 	// stored in the evaluator.
@@ -137,7 +136,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 	// TODO: Each match here is a potential success.  When other trees and operators which are walkable
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
-	// for each group ID and then skip evaluating expressions if so.
+	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
+	// ID's length.
 	for _, match := range matches {
 		atomic.AddInt32(&matched, 1)
 		// NOTE: We don't need to add lifted expression variables,
@@ -157,36 +157,29 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 }
 
 func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([]ExpressionPart, error) {
-	return a.aggregateMatch(ctx, data, "")
-}
-
-func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, prefix string) ([]ExpressionPart, error) {
-	// TODO: Flip this.  Instead of iterating through all fields in a potentially large input
-	// array, iterate through all known variables/idents in the aggregate tree to see if
-	// the data has those keys set.
-	//
-	// Also, we should iterate through the expression in a top-down order, ensuring that if
-	// any of the top groups fail to match we quit early.
-
 	result := []ExpressionPart{}
-	for k, v := range data {
-		switch cast := v.(type) {
-		case map[string]any:
-			// Recurse into the map to pluck out nested idents, eg. "event.data.account.id"
-			evals, err := a.aggregateMatch(ctx, cast, prefix+k+".")
-			if err != nil {
-				return nil, err
-			}
-			if len(evals) > 0 {
-				result = append(result, evals...)
-			}
+
+	a.lock.RLock()
+	defer a.lock.RUnlock()
+
+	// Iterate through all known variables/idents in the aggregate tree to see if
+	// the data has those keys set.  If so, we can immediately evaluate the data with
+	// the tree.
+	//
+	// TODO: we should iterate through the expression in a top-down order, ensuring that if
+	// any of the top groups fail to match we quit early.
+	for k, tree := range a.artIdents {
+		x, err := jp.ParseString(k)
+		if err != nil {
+			return nil, err
+		}
+		res := x.Get(data)
+		if len(res) != 1 {
+			continue
+		}
+
+		switch cast := res[0].(type) {
 		case string:
-			a.lock.RLock()
-			tree, ok := a.artIdents[prefix+k]
-			a.lock.RUnlock()
-			if !ok {
-				continue
-			}
 			found, ok := tree.Search(ctx, cast)
 			if !ok {
 				continue
@@ -195,8 +188,8 @@ func (a *aggregator) aggregateMatch(ctx context.Context, data map[string]any, pr
 		default:
 			continue
 		}
-
 	}
+
 	return result, nil
 }
 
