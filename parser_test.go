@@ -979,7 +979,7 @@ func TestParse(t *testing.T) {
 func TestParse_LiftedVars(t *testing.T) {
 	ctx := context.Background()
 
-	cachingCelParser := NewCachingParser(newEnv())
+	cachingCelParser := NewCachingParser(newEnv(), nil)
 
 	assert := func(t *testing.T, tests []parseTestInput) {
 		t.Helper()
