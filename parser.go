@@ -486,34 +486,32 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 	)
 
 	for _, item := range args {
+		var ident string
+
 		switch item.Kind() {
-		case celast.IdentKind:
-			if identA == "" {
-				identA = item.AsIdent()
-			} else {
-				identB = item.AsIdent()
+		case celast.CallKind:
+			ident = parseArrayAccess(item)
+			if ident == "" {
+				// TODO: Panic or mark as non-exhaustive parse.
+				return nil
 			}
+		case celast.IdentKind:
+			ident = item.AsIdent()
 		case celast.LiteralKind:
 			literal = item.AsLiteral().Value()
 		case celast.SelectKind:
 			// This is an expression, ie. "event.data.foo"  Iterate from the root field upwards
 			// to get the full ident.
-			walked := ""
-			for item.Kind() == celast.SelectKind {
-				sel := item.AsSelect()
-				if walked == "" {
-					walked = sel.FieldName()
-				} else {
-					walked = sel.FieldName() + "." + walked
-				}
-				item = sel.Operand()
-			}
-			walked = item.AsIdent() + "." + walked
+			ident = walkSelect(item)
+		}
 
+		if ident != "" {
 			if identA == "" {
-				identA = walked
+				// Set the first ident
+				identA = ident
 			} else {
-				identB = walked
+				// Set the second.
+				identB = ident
 			}
 		}
 	}
@@ -619,6 +617,35 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 		Ident:    identA,
 		Operator: fn,
 	}
+}
+
+func walkSelect(item celast.Expr) string {
+	// This is an expression, ie. "event.data.foo"  Iterate from the root field upwards
+	// to get the full ident.
+	walked := ""
+	for item.Kind() == celast.SelectKind {
+		sel := item.AsSelect()
+		if walked == "" {
+			walked = sel.FieldName()
+		} else {
+			walked = sel.FieldName() + "." + walked
+		}
+		item = sel.Operand()
+		if item.Kind() == celast.CallKind {
+			arrayPrefix := parseArrayAccess(item)
+			walked = arrayPrefix + "." + walked
+		}
+	}
+	return strings.TrimPrefix(item.AsIdent()+"."+walked, ".")
+}
+
+func parseArrayAccess(item celast.Expr) string {
+	// The only supported accessor here is _[_], which is an array index accessor.
+	if item.AsCall().FunctionName() != operators.Index && item.AsCall().FunctionName() != operators.OptIndex {
+		return ""
+	}
+	args := item.AsCall().Args()
+	return fmt.Sprintf("%s[%v]", walkSelect(args[0]), args[1].AsLiteral().Value())
 }
 
 func invert(op string) string {

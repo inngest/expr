@@ -76,7 +76,6 @@ func TestEvaluate(t *testing.T) {
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
-
 	_, err = e.Add(ctx, expected)
 	require.NoError(t, err)
 
@@ -121,7 +120,6 @@ func TestEvaluate(t *testing.T) {
 	})
 
 	t.Run("It handles non-matching data", func(t *testing.T) {
-		fmt.Println("evaluating")
 		pre := time.Now()
 		evals, matched, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
@@ -138,6 +136,89 @@ func TestEvaluate(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(evals))
 		require.EqualValues(t, 1, matched) // We still ran one expression
+	})
+
+	t.Run("It handles matching on arrays of data", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"ids": []string{"a", "b", "c"},
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
+
+		require.NoError(t, err)
+		require.EqualValues(t, 0, len(evals))
+		require.EqualValues(t, 1, matched) // We still ran one expression
+	})
+}
+
+func TestEvaluate_ArrayIndexes(t *testing.T) {
+	ctx := context.Background()
+	parser, err := NewTreeParser(NewCachingParser(newEnv()))
+	require.NoError(t, err)
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	expected := tex(`event.data.ids[2] == "id-b"`)
+	_, err = e.Add(ctx, expected)
+	require.NoError(t, err)
+
+	n := 100_000
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		//nolint:all
+		go func() {
+			defer wg.Done()
+			byt := make([]byte, 8)
+			_, err := rand.Read(byt)
+			require.NoError(t, err)
+			str := hex.EncodeToString(byt)
+
+			_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+
+	t.Run("It doesn't return if arrays contain non-matching data", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"ids": []string{"none-match", "nope"},
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
+
+		require.NoError(t, err)
+		require.EqualValues(t, 0, len(evals))
+		require.EqualValues(t, 0, matched)
+	})
+
+	t.Run("It matches arrays", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"ids": []string{"a", "yes", "id-b"},
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
+
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(evals))
+		require.EqualValues(t, 1, matched)
 	})
 }
 

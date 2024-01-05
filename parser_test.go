@@ -69,9 +69,41 @@ func TestParse(t *testing.T) {
 		}
 	}
 
+	t.Run("It handles array indexing", func(t *testing.T) {
+		tests := []parseTestInput{
+			{
+				input:  `event.data.ids[2] == "a"`,
+				output: `event.data.ids[2] == "a"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Ident:    "event.data.ids[2]",
+							Literal:  "a",
+							Operator: operators.Equals,
+						},
+					},
+				},
+			},
+			{
+				input:  `event.data.ids[2].id == "a"`,
+				output: `event.data.ids[2].id == "a"`,
+				expected: ParsedExpression{
+					Root: Node{
+						Predicate: &Predicate{
+							Ident:    "event.data.ids[2].id",
+							Literal:  "a",
+							Operator: operators.Equals,
+						},
+					},
+				},
+			},
+		}
+
+		assert(t, tests)
+	})
+
 	t.Run("It handles ident matching", func(t *testing.T) {
 		ident := "vars.a"
-		_ = ident
 
 		tests := []parseTestInput{
 			{
