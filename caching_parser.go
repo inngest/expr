@@ -10,8 +10,6 @@ import (
 
 var (
 	CacheTime = time.Hour
-
-	replace = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"}
 )
 
 // NewCachingParser returns a CELParser which lifts quoted literals out of the expression

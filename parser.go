@@ -11,10 +11,6 @@ import (
 	"github.com/google/cel-go/common/operators"
 )
 
-const (
-	VarPrefix = "vars."
-)
-
 // TreeParser parses an expression into a tree, with a root node and branches for
 // each subsequent OR or AND expression.
 type TreeParser interface {

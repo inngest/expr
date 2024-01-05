@@ -6,11 +6,25 @@ import (
 	"strings"
 )
 
+const (
+	// VarPrefix is the lifted variable name used when extracting idents from an
+	// expression.
+	VarPrefix = "vars."
+)
+
+var (
+	// replace is truly hack city.  these are 20 variable names for values that are
+	// lifted out of expressions via liftLiterals.
+	replace = []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t"}
+)
+
 // LiftedArgs represents a set of variables that have been lifted from expressions and
 // replaced with identifiers, eg `id == "foo"` becomes `id == vars.a`, with "foo" lifted
 // as "vars.a".
 type LiftedArgs interface {
+	// Get a lifted variable argument from the parsed expression.
 	Get(val string) (any, bool)
+	// Return all lifted variables as a map.
 	Map() map[string]any
 }
 
