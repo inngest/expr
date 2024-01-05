@@ -32,12 +32,6 @@ type LiftedArgs interface {
 // expressions to increase cache hit rates.
 func liftLiterals(expr string) (string, LiftedArgs) {
 	// TODO: Lift numeric literals out of expressions.
-	// If this contains an escape sequence (eg. `\` or `\'`), skip the lifting
-	// of literals out of the expression.
-	if strings.Contains(expr, `\"`) || strings.Contains(expr, `\'`) {
-		return expr, nil
-	}
-
 	lp := liftParser{expr: expr}
 	return lp.lift()
 }
@@ -103,22 +97,26 @@ func (l *liftParser) addLiftedVar(val argMapValue) {
 func (l *liftParser) consumeString(quoteChar byte) argMapValue {
 	offset := l.idx
 	length := 0
+
 	for l.idx < len(l.expr) {
 		char := l.expr[l.idx]
 
-		// Grab the next char for evaluation.
-		l.idx++
-
 		if char == '\\' && l.peek() == quoteChar {
 			// If we're escaping the quote character, ignore it.
-			l.idx++
-			length++
+			l.idx += 2
+			length += 2
 			continue
 		}
 
 		if char == quoteChar {
+			// Skip over the end quote.
+			l.idx++
+			// Return the substring offset/length
 			return argMapValue{offset, length}
 		}
+
+		// Grab the next char for evaluation.
+		l.idx++
 
 		// Only now has the length of the inner quote increased.
 		length++

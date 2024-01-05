@@ -1086,9 +1086,11 @@ func TestParsedCELAST(t *testing.T) {
 
 	p := NewCachingParser(env, nil)
 
-	ast, iss, args := p.Parse("event.data.id == 'ok'")
+	ast, iss, args := p.Parse(`event.data.id == "ok\" please"`)
 	require.Nil(t, iss)
-	require.EqualValues(t, map[string]any{"a": "ok"}, args.Map())
+	require.NotNil(t, ast)
+	require.NotNil(t, args)
+	require.EqualValues(t, map[string]any{"a": `ok\" please`}, args.Map())
 
 	program, err := env.Program(
 		ast,
@@ -1100,7 +1102,7 @@ func TestParsedCELAST(t *testing.T) {
 		result, _, err := program.Eval(map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
-					"id": "ok",
+					"id": `ok\" please`,
 				},
 			},
 			"vars": args.Map(),
