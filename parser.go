@@ -29,7 +29,7 @@ type TreeParser interface {
 // to provide a caching layer on top of *cel.Env to optimize parsing, as it's
 // the slowest part of the expression process.
 type CELParser interface {
-	Parse(expr string) (*cel.Ast, *cel.Issues, map[string]any)
+	Parse(expr string) (*cel.Ast, *cel.Issues, LiftedArgs)
 }
 
 // EnvParser turns a *cel.Env into a CELParser.
@@ -41,7 +41,7 @@ type envparser struct {
 	env *cel.Env
 }
 
-func (e envparser) Parse(txt string) (*cel.Ast, *cel.Issues, map[string]any) {
+func (e envparser) Parse(txt string) (*cel.Ast, *cel.Issues, LiftedArgs) {
 	ast, iss := e.env.Parse(txt)
 	return ast, iss, nil
 }
@@ -98,8 +98,7 @@ type ParsedExpression struct {
 	// share the same expression.  Using the same expression allows us
 	// to cache and skip CEL parsing, which is the slowest aspect of
 	// expression matching.
-	//
-	Vars map[string]any
+	Vars LiftedArgs
 
 	// Evaluable stores the original evaluable interface that was parsed.
 	Evaluable Evaluable
@@ -330,7 +329,7 @@ type expr struct {
 // It does this by iterating through the expression, amending the current `group` until
 // an or expression is found.  When an or expression is found, we create another group which
 // is mutated by the iteration.
-func navigateAST(nav expr, parent *Node, vars map[string]any) ([]*Node, error) {
+func navigateAST(nav expr, parent *Node, vars LiftedArgs) ([]*Node, error) {
 	// on the very first call to navigateAST, ensure that we set the first node
 	// inside the nodemap.
 	result := []*Node{}
@@ -464,7 +463,7 @@ func peek(nav expr, operator string) []expr {
 // callToPredicate transforms a function call within an expression (eg `>`) into
 // a Predicate struct for our matching engine.  It ahandles normalization of
 // LHS/RHS plus inversions.
-func callToPredicate(item celast.Expr, negated bool, vars map[string]any) *Predicate {
+func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate {
 	fn := item.AsCall().FunctionName()
 	if fn == operators.LogicalAnd || fn == operators.LogicalOr {
 		// Quit early, as we descend into these while iterating through the tree when calling this.
@@ -547,7 +546,7 @@ func callToPredicate(item celast.Expr, negated bool, vars map[string]any) *Predi
 		}
 
 		if aIsVar {
-			if val, ok := vars[strings.TrimPrefix(identA, VarPrefix)]; ok {
+			if val, ok := vars.Get(strings.TrimPrefix(identA, VarPrefix)); ok {
 				// Normalize.
 				literal = val
 				identA = identB
@@ -556,7 +555,7 @@ func callToPredicate(item celast.Expr, negated bool, vars map[string]any) *Predi
 		}
 
 		if bIsVar {
-			if val, ok := vars[strings.TrimPrefix(identB, VarPrefix)]; ok {
+			if val, ok := vars.Get(strings.TrimPrefix(identB, VarPrefix)); ok {
 				// Normalize.
 				literal = val
 				identB = ""

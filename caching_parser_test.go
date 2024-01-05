@@ -16,7 +16,7 @@ func TestCachingParser_CachesSame(t *testing.T) {
 	var (
 		prevAST    *cel.Ast
 		prevIssues *cel.Issues
-		prevVars   map[string]any
+		prevVars   LiftedArgs
 	)
 
 	t.Run("With an uncached expression", func(t *testing.T) {
@@ -61,7 +61,7 @@ func TestCachingParser_CacheIgnoreLiterals_Unescaped(t *testing.T) {
 	var (
 		prevAST    *cel.Ast
 		prevIssues *cel.Issues
-		prevVars   map[string]any
+		prevVars   LiftedArgs
 	)
 
 	t.Run("With an uncached expression", func(t *testing.T) {
