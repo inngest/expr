@@ -1079,6 +1079,51 @@ func TestParse_LiftedVars(t *testing.T) {
 	})
 }
 
+// TestParsedCELAST tests the CachingParser as a CEL parser, ensuring that complex expressions
+// can be evaluated using CEL when parsed.
+func TestParsedCELAST(t *testing.T) {
+	env := newEnv()
+
+	p := NewCachingParser(env, nil)
+
+	ast, iss, args := p.Parse("event.data.id == 'ok'")
+	require.Nil(t, iss)
+	require.EqualValues(t, map[string]any{"a": "ok"}, args.Map())
+
+	program, err := env.Program(
+		ast,
+		cel.EvalOptions(cel.OptExhaustiveEval, cel.OptTrackState, cel.OptPartialEval),
+	)
+	require.NoError(t, err)
+
+	t.Run("It returns true with a matching expression", func(t *testing.T) {
+		result, _, err := program.Eval(map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"id": "ok",
+				},
+			},
+			"vars": args.Map(),
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, result, true)
+	})
+
+	t.Run("It returns false with an invalid expression", func(t *testing.T) {
+		result, _, err := program.Eval(map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"id": "no",
+				},
+			},
+			"vars": args.Map(),
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, result, false)
+	})
+
+}
+
 func TestRootGroups(t *testing.T) {
 	r := require.New(t)
 	ctx := context.Background()

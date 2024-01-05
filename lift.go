@@ -9,7 +9,7 @@ import (
 const (
 	// VarPrefix is the lifted variable name used when extracting idents from an
 	// expression.
-	VarPrefix = "vars."
+	VarPrefix = "vars"
 )
 
 var (
@@ -97,7 +97,7 @@ func (l *liftParser) addLiftedVar(val argMapValue) {
 	l.vars.vars[letter] = val
 	l.varCounter++
 
-	l.rewritten.WriteString(VarPrefix + letter)
+	l.rewritten.WriteString(VarPrefix + "." + letter)
 }
 
 func (l *liftParser) consumeString(quoteChar byte) argMapValue {

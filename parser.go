@@ -540,7 +540,7 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 		}
 
 		if aIsVar && vars != nil {
-			if val, ok := vars.Get(strings.TrimPrefix(identA, VarPrefix)); ok {
+			if val, ok := vars.Get(strings.TrimPrefix(identA, VarPrefix+".")); ok {
 				// Normalize.
 				literal = val
 				identA = identB
@@ -549,7 +549,7 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 		}
 
 		if bIsVar && vars != nil {
-			if val, ok := vars.Get(strings.TrimPrefix(identB, VarPrefix)); ok {
+			if val, ok := vars.Get(strings.TrimPrefix(identB, VarPrefix+".")); ok {
 				// Normalize.
 				literal = val
 				identB = ""

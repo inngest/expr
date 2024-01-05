@@ -202,6 +202,9 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
 		return false, err
 	}
 
+	// NOTE: When modifying, ensure that Remove() is updated.  We should reconcile
+	// the core loops to use the same code.
+
 	aggregateable := true
 	for _, g := range parsed.RootGroups() {
 		ok, err := a.addGroup(ctx, g, parsed)
@@ -297,7 +300,16 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, gid groupID, parsed *
 }
 
 func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
-	// TODO
+	// parse the expression using our tree parser.
+	parsed, err := a.parser.Parse(ctx, eval)
+	if err != nil {
+		return err
+	}
+
+	for _, g := range parsed.RootGroups() {
+		_ = g
+	}
+
 	return fmt.Errorf("not implemented")
 }
 
