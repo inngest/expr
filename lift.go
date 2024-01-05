@@ -6,8 +6,12 @@ import (
 	"strings"
 )
 
+// LiftedArgs represents a set of variables that have been lifted from expressions and
+// replaced with identifiers, eg `id == "foo"` becomes `id == vars.a`, with "foo" lifted
+// as "vars.a".
 type LiftedArgs interface {
 	Get(val string) (any, bool)
+	Map() map[string]any
 }
 
 // liftLiterals lifts quoted literals into variables, allowing us to normalize
@@ -128,6 +132,14 @@ type pointerArgMap struct {
 	vars map[string]argMapValue
 }
 
+func (p pointerArgMap) Map() map[string]any {
+	res := map[string]any{}
+	for k, v := range p.vars {
+		res[k] = v.get(p.expr)
+	}
+	return res
+}
+
 func (p pointerArgMap) Get(key string) (any, bool) {
 	val, ok := p.vars[key]
 	if !ok {
@@ -150,4 +162,8 @@ type regularArgMap map[string]any
 func (p regularArgMap) Get(key string) (any, bool) {
 	val, ok := p[key]
 	return val, ok
+}
+
+func (p regularArgMap) Map() map[string]any {
+	return p
 }

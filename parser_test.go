@@ -963,6 +963,9 @@ func TestParse_LiftedVars(t *testing.T) {
 				test.expected.Evaluable = eval
 			}
 
+			// Convert the lifted arg interfaces to the same map values
+			actual.Vars = regularArgMap(actual.Vars.Map())
+
 			require.NoError(t, err)
 			require.NotNil(t, actual)
 
