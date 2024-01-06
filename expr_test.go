@@ -137,25 +137,7 @@ func TestEvaluate(t *testing.T) {
 
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 1, matched) // We still ran one expression
-	})
-
-	t.Run("It handles matching on arrays of data", func(t *testing.T) {
-		pre := time.Now()
-		evals, matched, err := e.Evaluate(ctx, map[string]any{
-			"event": map[string]any{
-				"data": map[string]any{
-					"ids": []string{"a", "b", "c"},
-				},
-			},
-		})
-		total := time.Since(pre)
-		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
-		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
-
-		require.NoError(t, err)
-		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 1, matched) // We still ran one expression
+		require.EqualValues(t, 0, matched) // We still ran one expression
 	})
 }
 
@@ -170,7 +152,7 @@ func TestEvaluate_Concurrently(t *testing.T) {
 	require.NoError(t, err)
 
 	go func() {
-		for i := 0; i < 1_000; i++ {
+		for i := 0; i < 100_000; i++ {
 			//nolint:all
 			go func() {
 				byt := make([]byte, 8)
@@ -213,7 +195,7 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 	require.NoError(t, err)
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
-	expected := tex(`event.data.ids[2] == "id-b"`)
+	expected := tex(`event.data.ids[1] == "id-b" && event.data.ids[2] == "id-c"`)
 	_, err = e.Add(ctx, expected)
 	require.NoError(t, err)
 
@@ -258,7 +240,7 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 		evals, matched, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
-					"ids": []string{"a", "yes", "id-b"},
+					"ids": []string{"id-a", "id-b", "id-c"},
 				},
 			},
 		})
@@ -270,6 +252,49 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 		require.EqualValues(t, 1, len(evals))
 		require.EqualValues(t, 1, matched)
 	})
+}
+
+func TestEvaluate_Compound(t *testing.T) {
+	ctx := context.Background()
+	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
+	require.NoError(t, err)
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	expected := tex(`event.data.a == "ok" && event.data.b == "yes" && event.data.c == "please"`)
+	ok, err := e.Add(ctx, expected)
+	require.True(t, ok)
+	require.NoError(t, err)
+
+	t.Run("It matches items", func(t *testing.T) {
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"a": "ok",
+					"b": "yes",
+					"c": "please",
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, matched) // We only perform one eval
+		require.EqualValues(t, []Evaluable{expected}, evals)
+	})
+
+	t.Run("It skips if less than the group length is found", func(t *testing.T) {
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"a": "ok",
+					"b": "yes",
+					"c": "no - no match",
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 0, matched)
+		require.EqualValues(t, []Evaluable{}, evals)
+	})
+
 }
 
 func TestAggregateMatch(t *testing.T) {
@@ -402,6 +427,7 @@ func TestAdd(t *testing.T) {
 type tex string
 
 func (e tex) Expression() string { return string(e) }
+func (e tex) Identifier() string { return string(e) }
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {
 	env, _ := cel.NewEnv(
