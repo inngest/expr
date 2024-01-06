@@ -20,7 +20,7 @@ func newEnv() *cel.Env {
 }
 
 func newParser() (TreeParser, error) {
-	return NewTreeParser(EnvParser(newEnv()))
+	return NewTreeParser(EnvParser(newEnv())), nil
 }
 
 type parseTestInput struct {
@@ -1093,10 +1093,9 @@ func TestParse_LiftedVars(t *testing.T) {
 		t.Helper()
 
 		for _, test := range tests {
-			p, err := NewTreeParser(cachingCelParser)
+			p := NewTreeParser(cachingCelParser)
 			// overwrite rander so that the parser uses the same nil bytes
 			p.(*parser).rander = rander
-			require.NoError(t, err)
 			eval := tex(test.input)
 			actual, err := p.Parse(ctx, eval)
 

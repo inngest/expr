@@ -20,13 +20,9 @@ func BenchmarkCachingEvaluate1_000(b *testing.B) {
 }
 
 // func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
-
 func benchEval(i int, p CELParser, b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		parser, err := NewTreeParser(p)
-		if err != nil {
-			panic(err)
-		}
+		parser := NewTreeParser(p)
 		_ = evaluate(b, i, parser)
 	}
 }
@@ -61,12 +57,11 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 
 func TestEvaluate(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
-	require.NoError(t, err)
+	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
-	_, err = e.Add(ctx, expected)
+	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
 	n := 100_000
@@ -116,12 +111,11 @@ func TestEvaluate(t *testing.T) {
 
 func TestEvaluate_Concurrently(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
-	require.NoError(t, err)
+	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
-	_, err = e.Add(ctx, expected)
+	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
 	addOtherExpressions(100_000, e)
@@ -152,12 +146,11 @@ func TestEvaluate_Concurrently(t *testing.T) {
 
 func TestEvaluate_ArrayIndexes(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
-	require.NoError(t, err)
+	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.ids[1] == "id-b" && event.data.ids[2] == "id-c"`)
-	_, err = e.Add(ctx, expected)
+	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
 	t.Run("It doesn't return if arrays contain non-matching data", func(t *testing.T) {
@@ -199,8 +192,7 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 
 func TestEvaluate_Compound(t *testing.T) {
 	ctx := context.Background()
-	parser, err := NewTreeParser(NewCachingParser(newEnv(), nil))
-	require.NoError(t, err)
+	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.a == "ok" && event.data.b == "yes" && event.data.c == "please"`)
@@ -447,6 +439,47 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 2, e.ConstantLen())
 		require.Equal(t, 0, e.AggregateableLen())
 	})
+}
+
+func TestEmptyExpressions(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	empty := tex(``, "id-1")
+
+	t.Run("Adding an empty expression succeeds", func(t *testing.T) {
+		ok, err := e.Add(ctx, empty)
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+	})
+
+	t.Run("Empty expressions always match", func(t *testing.T) {
+		// Matching this expr should now fail.
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{"any": true},
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, empty, eval[0])
+	})
+
+	t.Run("Removing an empty expression succeeds", func(t *testing.T) {
+		err := e.Remove(ctx, empty)
+		require.NoError(t, err)
+		require.Equal(t, 0, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+	})
+
 }
 
 // tex represents a test Evaluable expression
