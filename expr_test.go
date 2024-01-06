@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,20 +40,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
 	_, _ = e.Add(ctx, expected)
 
-	wg := sync.WaitGroup{}
-	// Insert N random matches.
-	for n := 0; n < i; n++ {
-		wg.Add(1)
-		//nolint:all
-		go func() {
-			defer wg.Done()
-			byt := make([]byte, 8)
-			_, _ = rand.Read(byt)
-			str := hex.EncodeToString(byt)
-			_, _ = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
-		}()
-	}
-	wg.Wait()
+	addOtherExpressions(i, e)
 
 	b.StartTimer()
 
@@ -83,22 +71,7 @@ func TestEvaluate(t *testing.T) {
 
 	n := 100_000
 
-	wg := sync.WaitGroup{}
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		//nolint:all
-		go func() {
-			defer wg.Done()
-			byt := make([]byte, 8)
-			_, err := rand.Read(byt)
-			require.NoError(t, err)
-			str := hex.EncodeToString(byt)
-
-			_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
-			require.NoError(t, err)
-		}()
-	}
-	wg.Wait()
+	addOtherExpressions(n, e)
 
 	require.EqualValues(t, n+1, e.Len())
 
@@ -151,19 +124,7 @@ func TestEvaluate_Concurrently(t *testing.T) {
 	_, err = e.Add(ctx, expected)
 	require.NoError(t, err)
 
-	go func() {
-		for i := 0; i < 100_000; i++ {
-			//nolint:all
-			go func() {
-				byt := make([]byte, 8)
-				_, err := rand.Read(byt)
-				require.NoError(t, err)
-				str := hex.EncodeToString(byt)
-				_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
-				require.NoError(t, err)
-			}()
-		}
-	}()
+	addOtherExpressions(100_000, e)
 
 	t.Run("It matches items", func(t *testing.T) {
 		wg := sync.WaitGroup{}
@@ -198,24 +159,6 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 	expected := tex(`event.data.ids[1] == "id-b" && event.data.ids[2] == "id-c"`)
 	_, err = e.Add(ctx, expected)
 	require.NoError(t, err)
-
-	n := 100_000
-	wg := sync.WaitGroup{}
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		//nolint:all
-		go func() {
-			defer wg.Done()
-			byt := make([]byte, 8)
-			_, err := rand.Read(byt)
-			require.NoError(t, err)
-			str := hex.EncodeToString(byt)
-
-			_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
-			require.NoError(t, err)
-		}()
-	}
-	wg.Wait()
 
 	t.Run("It doesn't return if arrays contain non-matching data", func(t *testing.T) {
 		pre := time.Now()
@@ -363,7 +306,7 @@ func TestAggregateMatch(t *testing.T) {
 	})
 }
 
-func TestAdd(t *testing.T) {
+func TestAddRemove(t *testing.T) {
 	ctx := context.Background()
 	parser, err := newParser()
 	require.NoError(t, err)
@@ -371,7 +314,9 @@ func TestAdd(t *testing.T) {
 	t.Run("With a basic aggregateable expression", func(t *testing.T) {
 		e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
-		ok, err := e.Add(ctx, tex(`event.data.foo == "yes"`))
+		firstExpr := tex(`event.data.foo == "yes"`, "first-id")
+
+		ok, err := e.Add(ctx, firstExpr)
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, 1, e.Len())
@@ -379,20 +324,87 @@ func TestAdd(t *testing.T) {
 		require.Equal(t, 1, e.AggregateableLen())
 
 		// Add the same expression again.
-		ok, err = e.Add(ctx, tex(`event.data.foo == "yes"`))
+		ok, err = e.Add(ctx, tex(`event.data.foo == "yes"`, "second-id"))
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, 2, e.Len())
 		require.Equal(t, 0, e.ConstantLen())
 		require.Equal(t, 2, e.AggregateableLen())
 
+		t.Run("It removes duplicate expressions with different IDs", func(t *testing.T) {
+			// Matching this expr should work before removal.
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{"foo": "yes"},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 2, len(eval))
+			require.EqualValues(t, 2, count)
+
+			err = e.Remove(ctx, tex(`event.data.foo == "yes"`, "second-id"))
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, 1, e.Len())
+			require.Equal(t, 0, e.ConstantLen())
+			require.Equal(t, 1, e.AggregateableLen())
+
+			// Matching this expr should now fail.
+			eval, count, err = e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{"foo": "yes"},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(eval))
+			require.EqualValues(t, 1, count)
+			require.EqualValues(t, firstExpr.Identifier(), eval[0].Identifier())
+		})
+
 		// Add a new expression
 		ok, err = e.Add(ctx, tex(`event.data.another == "no"`))
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.Equal(t, 3, e.Len())
+		require.Equal(t, 2, e.Len())
 		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 3, e.AggregateableLen())
+		require.Equal(t, 2, e.AggregateableLen())
+
+		// Remove all expressions
+		t.Run("It removes an aggregateable expression", func(t *testing.T) {
+			// Matching this expr should work before removal.
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{"another": "no"},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(eval))
+			require.EqualValues(t, 1, count)
+
+			err = e.Remove(ctx, tex(`event.data.another == "no"`))
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, 1, e.Len()) // The first expr is remaining.
+			require.Equal(t, 0, e.ConstantLen())
+			require.Equal(t, 1, e.AggregateableLen())
+
+			// Matching this expr should now fail.
+			eval, count, err = e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{"another": "no"},
+				},
+			})
+			require.NoError(t, err)
+			require.Empty(t, eval)
+			require.EqualValues(t, 0, count)
+		})
+
+		// And yeet a non-existent aggregateable expr.
+		err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
+		require.Error(t, ErrEvaluableNotFound, err)
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 1, e.AggregateableLen())
 	})
 
 	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
@@ -420,14 +432,38 @@ func TestAdd(t *testing.T) {
 		require.Equal(t, 3, e.Len())
 		require.Equal(t, 3, e.ConstantLen())
 		require.Equal(t, 0, e.AggregateableLen())
+
+		// And remove.
+		err = e.Remove(ctx, tex(`event.data.another < "no"`))
+		require.NoError(t, err)
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 2, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+
+		// And yeet out another non-existent expression
+		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
+		require.Error(t, ErrEvaluableNotFound, err)
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 2, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
 	})
 }
 
 // tex represents a test Evaluable expression
-type tex string
+func tex(expr string, ids ...string) Evaluable {
+	return testEvaluable{
+		expr: expr,
+		id:   strings.Join(ids, ","),
+	}
+}
 
-func (e tex) Expression() string { return string(e) }
-func (e tex) Identifier() string { return string(e) }
+type testEvaluable struct {
+	expr string
+	id   string
+}
+
+func (e testEvaluable) Expression() string { return e.expr }
+func (e testEvaluable) Identifier() string { return e.expr + e.id }
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {
 	env, _ := cel.NewEnv(
@@ -464,4 +500,28 @@ func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (
 		return false, fmt.Errorf("error evaluating expression: %w", err)
 	}
 	return result.Value().(bool), nil
+}
+
+func addOtherExpressions(n int, e AggregateEvaluator) {
+	ctx := context.Background()
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		//nolint:all
+		go func() {
+			defer wg.Done()
+			byt := make([]byte, 8)
+			_, err := rand.Read(byt)
+			if err != nil {
+				panic(err)
+			}
+			str := hex.EncodeToString(byt)
+
+			_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
+			if err != nil {
+				panic(err)
+			}
+		}()
+	}
+	wg.Wait()
 }

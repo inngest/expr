@@ -56,6 +56,9 @@ func NewTreeParser(ep CELParser) (TreeParser, error) {
 type parser struct {
 	ep CELParser
 
+	// rander is a random reader set during testing.  it is never used outside
+	// of the test package during Parse.  Instead,  a new deterministic random
+	// reader is generated from the Evaluable identifier.
 	rander RandomReader
 }
 
@@ -65,7 +68,9 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		return nil, issues.Err()
 	}
 
-	if p.rander == nil {
+	r := p.rander
+
+	if r == nil {
 		// Create a new deterministic random reader based off of the evaluable's identifier.
 		// This means that every time we parse an expression with the given identifier, the
 		// group IDs will be deterministic as the randomness is sourced from the ID.
@@ -73,7 +78,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		// We only overwrite this if rander is not nil so that we can inject rander during tests.
 		digest := sha256.Sum256([]byte(eval.Identifier()))
 		seed := int64(binary.NativeEndian.Uint64(digest[:8]))
-		p.rander = rand.New(rand.NewSource(seed)).Read
+		r = rand.New(rand.NewSource(seed)).Read
 	}
 
 	node := newNode()
@@ -83,7 +88,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		},
 		node,
 		vars,
-		p.rander,
+		r,
 	)
 	if err != nil {
 		return nil, err
@@ -446,7 +451,12 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs, rand RandomReader) ([]
 	}
 
 	parent.GroupID = newGroupIDWithReader(uint16(total), rand)
+
 	// For each sub-group, add the same group IDs to children if there's no nesting.
+	//
+	// We do this so that the parent node which contains all ANDs can correctly set
+	// the same group ID for all child predicates.  This is necessasry;  if you compare
+	// A && B && C, we want all of A/B/C to share the same group ID
 	for n, item := range parent.Ands {
 		if len(item.Ands) == 0 && len(item.Ors) == 0 && item.Predicate != nil {
 			item.GroupID = parent.GroupID
