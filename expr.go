@@ -73,14 +73,21 @@ func NewAggregateEvaluator(
 	}
 }
 
+// Evaluable represents an evaluable expression with a unique identifier.
 type Evaluable interface {
-	// Identifier returns a unique identifier for the evaluable item.  If there are
+	// GetID returns a unique identifier for the evaluable item.  If there are
 	// two instances of the same expression, the identifier should return a unique
 	// string for each instance of the expression (eg. for two pauses).
-	Identifier() string
+	//
+	// It has the Get prefix to reduce collisions with implementations who expose an
+	// ID member.
+	GetID() string
 
-	// Expression returns an expression as a raw string.
-	Expression() string
+	// GetExpression returns an expression as a raw string.
+	//
+	// It has the Get prefix to reduce collisions with implementations who expose an
+	// Expression member.
+	GetExpression() string
 }
 
 type aggregator struct {
@@ -285,7 +292,7 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 			// Find the index of the evaluable in constants and yank out.
 			idx := -1
 			for n, item := range a.constants {
-				if item.Evaluable.Identifier() == eval.Identifier() {
+				if item.Evaluable.GetID() == eval.GetID() {
 					idx = n
 					break
 				}

@@ -63,7 +63,7 @@ type parser struct {
 }
 
 func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error) {
-	ast, issues, vars := p.ep.Parse(eval.Expression())
+	ast, issues, vars := p.ep.Parse(eval.GetExpression())
 	if issues != nil {
 		return nil, issues.Err()
 	}
@@ -76,7 +76,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		// group IDs will be deterministic as the randomness is sourced from the ID.
 		//
 		// We only overwrite this if rander is not nil so that we can inject rander during tests.
-		digest := sha256.Sum256([]byte(eval.Identifier()))
+		digest := sha256.Sum256([]byte(eval.GetID()))
 		seed := int64(binary.NativeEndian.Uint64(digest[:8]))
 		r = rand.New(rand.NewSource(seed)).Read
 	}

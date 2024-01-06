@@ -271,7 +271,7 @@ func TestAggregateMatch(t *testing.T) {
 		require.EqualValues(t, 1, len(matched))
 		require.EqualValues(t,
 			`event.data.a == "yes"`,
-			matched[0].Parsed.Evaluable.Expression(),
+			matched[0].Parsed.Evaluable.GetExpression(),
 		)
 	})
 
@@ -358,7 +358,7 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, len(eval))
 			require.EqualValues(t, 1, count)
-			require.EqualValues(t, firstExpr.Identifier(), eval[0].Identifier())
+			require.EqualValues(t, firstExpr.GetID(), eval[0].GetID())
 		})
 
 		// Add a new expression
@@ -462,15 +462,15 @@ type testEvaluable struct {
 	id   string
 }
 
-func (e testEvaluable) Expression() string { return e.expr }
-func (e testEvaluable) Identifier() string { return e.expr + e.id }
+func (e testEvaluable) GetExpression() string { return e.expr }
+func (e testEvaluable) GetID() string         { return e.expr + e.id }
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {
 	env, _ := cel.NewEnv(
 		cel.Variable("event", cel.AnyType),
 		cel.Variable("async", cel.AnyType),
 	)
-	ast, _ := env.Parse(e.Expression())
+	ast, _ := env.Parse(e.GetExpression())
 
 	// Create the program, refusing to short circuit if a match is found.
 	//
