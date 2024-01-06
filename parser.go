@@ -46,11 +46,11 @@ func (e envparser) Parse(txt string) (*cel.Ast, *cel.Issues, LiftedArgs) {
 }
 
 // NewTreeParser returns a new tree parser for a given *cel.Env
-func NewTreeParser(ep CELParser) (TreeParser, error) {
+func NewTreeParser(ep CELParser) TreeParser {
 	parser := &parser{
 		ep: ep,
 	}
-	return parser, nil
+	return parser
 }
 
 type parser struct {
@@ -63,7 +63,14 @@ type parser struct {
 }
 
 func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error) {
-	ast, issues, vars := p.ep.Parse(eval.GetExpression())
+	expression := eval.GetExpression()
+	if expression == "" {
+		return &ParsedExpression{
+			Evaluable: eval,
+		}, nil
+	}
+
+	ast, issues, vars := p.ep.Parse(expression)
 	if issues != nil {
 		return nil, issues.Err()
 	}
