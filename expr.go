@@ -11,6 +11,10 @@ import (
 	"github.com/ohler55/ojg/jp"
 )
 
+var (
+	ErrEvaluableNotFound = fmt.Errorf("Evaluable instance not found in aggregator")
+)
+
 // errTreeUnimplemented is used while we develop the aggregate tree library when trees
 // are not yet implemented.
 var errTreeUnimplemented = fmt.Errorf("tree type unimplemented")
@@ -271,15 +275,35 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 	aggregateable := true
 	for _, g := range parsed.RootGroups() {
 		ok, err := a.iterGroup(ctx, g, parsed, a.removeNode)
+		if err == ErrExpressionPartNotFound {
+			return ErrEvaluableNotFound
+		}
 		if err != nil {
 			return err
 		}
 		if !ok && aggregateable {
-			// TODO: REMOVE FROM CONSTANTS
+			// Find the index of the evaluable in constants and yank out.
+			idx := -1
+			for n, item := range a.constants {
+				if item.Evaluable.Identifier() == eval.Identifier() {
+					idx = n
+					break
+				}
+			}
+
+			if idx == -1 {
+				return ErrEvaluableNotFound
+			}
+
 			a.lock.Lock()
-			// a.constants = append(a.constants, parsed)
+			a.constants = append(a.constants[:idx], a.constants[idx+1:]...)
 			a.lock.Unlock()
+			aggregateable = false
 		}
+	}
+
+	if aggregateable {
+		atomic.AddInt32(&a.len, -1)
 	}
 
 	return nil
