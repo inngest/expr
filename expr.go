@@ -94,8 +94,9 @@ type aggregator struct {
 	eval   ExpressionEvaluator
 	parser TreeParser
 
-	artIdents map[string]PredicateTree
-	lock      *sync.RWMutex
+	artIdents   map[string]PredicateTree
+	nullLookups map[string]PredicateTree
+	lock        *sync.RWMutex
 
 	len int32
 
@@ -186,6 +187,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	return result, matched, nil
 }
 
+// AggregateMatch attempts to match incoming data to all PredicateTrees, resulting in a selection
+// of parts of an expression that have matched.
 func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([]ExpressionPart, error) {
 	result := []ExpressionPart{}
 
@@ -221,17 +224,21 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 				continue
 			}
 
-			for _, eval := range all.Evals {
+			for _, eval := range all {
 				counts[eval.GroupID] += 1
 				if _, ok := found[eval.GroupID]; !ok {
 					found[eval.GroupID] = []ExpressionPart{}
 				}
 				found[eval.GroupID] = append(found[eval.GroupID], eval)
 			}
+		case nil:
+			panic("Yea")
 		default:
 			continue
 		}
 	}
+
+	// TODO: Match on nulls.
 
 	for k, count := range counts {
 		if int(k.Size()) > count {
@@ -393,6 +400,21 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 	return true, nil
 }
 
+func treeType(p Predicate) TreeType {
+	// switch on type of literal AND operator type.  int64/float64 literals require
+	// btrees, texts require ARTs.
+	switch p.Literal.(type) {
+	case string:
+		return TreeTypeART
+	case int64, float64:
+		return TreeTypeBTree
+	case nil:
+		return TreeTypeNullMatch
+	default:
+		return TreeTypeNone
+	}
+}
+
 // nodeOp represents an op eg. addNode or removeNode
 type nodeOp func(ctx context.Context, n *Node, parsed *ParsedExpression) error
 
@@ -403,7 +425,7 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 	defer a.lock.Unlock()
 
 	// Each node is aggregateable, so add this to the map for fast filtering.
-	switch n.Predicate.TreeType() {
+	switch treeType(*n.Predicate) {
 	case TreeTypeART:
 		tree, ok := a.artIdents[n.Predicate.Ident]
 		if !ok {
@@ -419,6 +441,9 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 		}
 		a.artIdents[n.Predicate.Ident] = tree
 		return nil
+	case TreeTypeNullMatch:
+		// TODO: Implement null matching.
+		return errTreeUnimplemented
 	}
 	return errTreeUnimplemented
 }
@@ -430,7 +455,7 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 	defer a.lock.Unlock()
 
 	// Each node is aggregateable, so add this to the map for fast filtering.
-	switch n.Predicate.TreeType() {
+	switch treeType(*n.Predicate) {
 	case TreeTypeART:
 		tree, ok := a.artIdents[n.Predicate.Ident]
 		if !ok {
@@ -446,6 +471,9 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 		}
 		a.artIdents[n.Predicate.Ident] = tree
 		return nil
+	case TreeTypeNullMatch:
+		// TODO: Implement null matching.
+		return errTreeUnimplemented
 	}
 	return errTreeUnimplemented
 }
@@ -479,6 +507,10 @@ func isAggregateable(n *Node) bool {
 	case int64, float64:
 		// TODO: Add binary tree matching for ints/floats
 		return false
+	case nil:
+		// This is null, which is supported and a simple lookup to check
+		// if the event's key in question is present and is not nil.
+		return true
 	default:
 		return false
 	}
