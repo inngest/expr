@@ -158,7 +158,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err = errors.Join(err, merr)
 	}
 
-	// TODO: Each match here is a potential success.  When other trees and operators which are walkable
+	// Each match here is a potential success.  When other trees and operators which are walkable
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
 	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
 	// ID's length.
@@ -197,8 +197,12 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 
-	// Store the number of times each GroupID has found a match.  We need at least
-	// as many matches as stored in the group ID to consider the match.
+	// Each match here is a potential success.  Ensure that we find the correct number of matches
+	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
+	// ID's length.  For example, (A && B && C) is a single group ID and must have a count >= 3,
+	// else we know a required comparason did not match.
+	//
+	// Note that having a count >= the group ID value does not guarantee that the expression is valid.
 	counts := map[groupID]int{}
 	// Store all expression parts per group ID for returning.
 	found := map[groupID][]ExpressionPart{}
@@ -508,7 +512,7 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 	case TreeTypeART:
 		tree, ok := a.artIdents[n.Predicate.Ident]
 		if !ok {
-			tree = newArtTree()
+			return ErrExpressionPartNotFound
 		}
 		err := tree.Remove(ctx, ExpressionPart{
 			GroupID:   n.GroupID,
@@ -521,8 +525,20 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 		a.artIdents[n.Predicate.Ident] = tree
 		return nil
 	case TreeTypeNullMatch:
-		// TODO: Implement null matching.
-		return errTreeUnimplemented
+		tree, ok := a.nullLookups[n.Predicate.Ident]
+		if !ok {
+			return ErrExpressionPartNotFound
+		}
+		err := tree.Remove(ctx, ExpressionPart{
+			GroupID:   n.GroupID,
+			Predicate: *n.Predicate,
+			Parsed:    parsed,
+		})
+		if err != nil {
+			return err
+		}
+		a.nullLookups[n.Predicate.Ident] = tree
+		return nil
 	}
 	return errTreeUnimplemented
 }
