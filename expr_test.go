@@ -530,6 +530,48 @@ func TestEvaluate_Null(t *testing.T) {
 		require.EqualValues(t, 1, count)
 		require.EqualValues(t, isNull, eval[0])
 	})
+
+	t.Run("It removes null checks", func(t *testing.T) {
+		err := e.Remove(ctx, notNull)
+		require.NoError(t, err)
+
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 1, e.AggregateableLen())
+
+		// We should still match on `isNull`
+		t.Run("Is null checks succeed", func(t *testing.T) {
+			// Matching this expr should work, as "ts" is nil
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"ts": nil,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(eval))
+			require.EqualValues(t, 1, count)
+			require.EqualValues(t, isNull, eval[0])
+		})
+
+		err = e.Remove(ctx, isNull)
+		require.NoError(t, err)
+		require.Equal(t, 0, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+
+		// We should no longer match on `isNull`
+		t.Run("Is null checks succeed", func(t *testing.T) {
+			// Matching this expr should work, as "ts" is nil
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"ts": nil,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(eval))
+			require.EqualValues(t, 0, count)
+		})
+	})
 }
 
 // tex represents a test Evaluable expression
