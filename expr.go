@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/ohler55/ojg/jp"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -201,8 +202,16 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	counts := map[groupID]int{}
 	// Store all expression parts per group ID for returning.
 	found := map[groupID][]ExpressionPart{}
+	// protect the above locks with a map.
+	lock := &sync.Mutex{}
+	// run lookups concurrently.
+	eg := errgroup.Group{}
 
 	add := func(all []ExpressionPart) {
+		// This is called concurrently, so don't mess with maps in goroutines
+		lock.Lock()
+		defer lock.Unlock()
+
 		for _, eval := range all {
 			counts[eval.GroupID] += 1
 			if _, ok := found[eval.GroupID]; !ok {
@@ -218,40 +227,54 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	//
 	// TODO: we should iterate through the expression in a top-down order, ensuring that if
 	// any of the top groups fail to match we quit early.
-	for path, tree := range a.artIdents {
-		x, err := jp.ParseString(path)
-		if err != nil {
-			return nil, err
-		}
-		res := x.Get(data)
-		if len(res) != 1 {
-			continue
-		}
+	for n, item := range a.artIdents {
+		tree := item
+		path := n
+		eg.Go(func() error {
+			x, err := jp.ParseString(path)
+			if err != nil {
+				return err
+			}
+			res := x.Get(data)
+			if len(res) != 1 {
+				return nil
+			}
 
-		cast, ok := res[0].(string)
-		if !ok {
-			// This isn't a string, so we can't compare within the radix tree.
-			continue
-		}
+			cast, ok := res[0].(string)
+			if !ok {
+				// This isn't a string, so we can't compare within the radix tree.
+				return nil
+			}
 
-		add(tree.Search(ctx, path, cast))
+			add(tree.Search(ctx, path, cast))
+			return nil
+		})
 	}
 
 	// Match on nulls.
-	for path, tree := range a.nullLookups {
-		x, err := jp.ParseString(path)
-		if err != nil {
-			return nil, err
-		}
+	for n, item := range a.nullLookups {
+		tree := item
+		path := n
+		eg.Go(func() error {
+			x, err := jp.ParseString(path)
+			if err != nil {
+				return err
+			}
 
-		res := x.Get(data)
-		if len(res) == 0 {
-			// This isn't present, which matches null in our overloads.  Set the
-			// value to nil.
-			res = []any{nil}
-		}
-		// This matches null, nil (as null), and any non-null items.
-		add(tree.Search(ctx, path, res[0]))
+			res := x.Get(data)
+			if len(res) == 0 {
+				// This isn't present, which matches null in our overloads.  Set the
+				// value to nil.
+				res = []any{nil}
+			}
+			// This matches null, nil (as null), and any non-null items.
+			add(tree.Search(ctx, path, res[0]))
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
 	}
 
 	for k, count := range counts {

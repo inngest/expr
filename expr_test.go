@@ -481,7 +481,7 @@ func TestEmptyExpressions(t *testing.T) {
 	})
 }
 
-func TestNull(t *testing.T) {
+func TestEvaluate_Null(t *testing.T) {
 	ctx := context.Background()
 	parser, err := newParser()
 	require.NoError(t, err)
