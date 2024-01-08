@@ -479,7 +479,38 @@ func TestEmptyExpressions(t *testing.T) {
 		require.Equal(t, 0, e.ConstantLen())
 		require.Equal(t, 0, e.AggregateableLen())
 	})
+}
 
+func TestNull(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	empty := tex(`event.ts != null`, "id-1")
+
+	t.Run("Adding a `null` check succeeds and is aggregateable", func(t *testing.T) {
+		ok, err := e.Add(ctx, empty)
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+	})
+
+	t.Run("Null checks succeed", func(t *testing.T) {
+		// Matching this expr should now fail.
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"ts": time.Now().UnixMilli(),
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, empty, eval[0])
+	})
 }
 
 // tex represents a test Evaluable expression
