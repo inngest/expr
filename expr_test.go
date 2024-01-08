@@ -55,7 +55,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	return nil
 }
 
-func TestEvaluate(t *testing.T) {
+func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
@@ -479,7 +479,99 @@ func TestEmptyExpressions(t *testing.T) {
 		require.Equal(t, 0, e.ConstantLen())
 		require.Equal(t, 0, e.AggregateableLen())
 	})
+}
 
+func TestEvaluate_Null(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	notNull := tex(`event.ts != null`, "id-1")
+	isNull := tex(`event.ts == null`, "id-2")
+
+	t.Run("Adding a `null` check succeeds and is aggregateable", func(t *testing.T) {
+		ok, err := e.Add(ctx, notNull)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		ok, err = e.Add(ctx, isNull)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 2, e.AggregateableLen())
+	})
+
+	t.Run("Not null checks succeed", func(t *testing.T) {
+		// Matching this expr should now fail.
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"ts": time.Now().UnixMilli(),
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, notNull, eval[0])
+	})
+
+	t.Run("Is null checks succeed", func(t *testing.T) {
+		// Matching this expr should work, as "ts" is nil
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"ts": nil,
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, isNull, eval[0])
+	})
+
+	t.Run("It removes null checks", func(t *testing.T) {
+		err := e.Remove(ctx, notNull)
+		require.NoError(t, err)
+
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 1, e.AggregateableLen())
+
+		// We should still match on `isNull`
+		t.Run("Is null checks succeed", func(t *testing.T) {
+			// Matching this expr should work, as "ts" is nil
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"ts": nil,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(eval))
+			require.EqualValues(t, 1, count)
+			require.EqualValues(t, isNull, eval[0])
+		})
+
+		err = e.Remove(ctx, isNull)
+		require.NoError(t, err)
+		require.Equal(t, 0, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+
+		// We should no longer match on `isNull`
+		t.Run("Is null checks succeed", func(t *testing.T) {
+			// Matching this expr should work, as "ts" is nil
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"ts": nil,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(eval))
+			require.EqualValues(t, 0, count)
+		})
+	})
 }
 
 // tex represents a test Evaluable expression
