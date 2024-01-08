@@ -450,6 +450,10 @@ func treeType(p Predicate) TreeType {
 	case int64, float64:
 		return TreeTypeBTree
 	case nil:
+		// Only allow this if we're not comparing two idents.
+		if p.LiteralIdent != nil {
+			return TreeTypeNone
+		}
 		return TreeTypeNullMatch
 	default:
 		return TreeTypeNone

@@ -487,7 +487,6 @@ func TestEvaluate_Null(t *testing.T) {
 	require.NoError(t, err)
 
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
-
 	notNull := tex(`event.ts != null`, "id-1")
 	isNull := tex(`event.ts == null`, "id-2")
 
@@ -571,6 +570,30 @@ func TestEvaluate_Null(t *testing.T) {
 			require.EqualValues(t, 0, len(eval))
 			require.EqualValues(t, 0, count)
 		})
+	})
+
+	t.Run("Two idents aren't treated as nulls", func(t *testing.T) {
+		e := NewAggregateEvaluator(parser, testBoolEvaluator)
+		idents := tex("event.data.a == event.data.b")
+		ok, err := e.Add(ctx, idents)
+		require.NoError(t, err)
+		require.False(t, ok)
+
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.ConstantLen())
+		require.Equal(t, 0, e.AggregateableLen())
+
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"a": 1,
+					"b": 1,
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, 1, count)
 	})
 }
 
