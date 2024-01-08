@@ -55,7 +55,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	return nil
 }
 
-func TestEvaluate(t *testing.T) {
+func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
@@ -488,18 +488,24 @@ func TestNull(t *testing.T) {
 
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
-	empty := tex(`event.ts != null`, "id-1")
+	notNull := tex(`event.ts != null`, "id-1")
+	isNull := tex(`event.ts == null`, "id-2")
 
 	t.Run("Adding a `null` check succeeds and is aggregateable", func(t *testing.T) {
-		ok, err := e.Add(ctx, empty)
+		ok, err := e.Add(ctx, notNull)
 		require.NoError(t, err)
-		require.False(t, ok)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.True(t, ok)
+
+		ok, err = e.Add(ctx, isNull)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 0, e.ConstantLen())
+		require.Equal(t, 2, e.AggregateableLen())
 	})
 
-	t.Run("Null checks succeed", func(t *testing.T) {
+	t.Run("Not null checks succeed", func(t *testing.T) {
 		// Matching this expr should now fail.
 		eval, count, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
@@ -507,9 +513,22 @@ func TestNull(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.EqualValues(t, 1, count)
 		require.EqualValues(t, 1, len(eval))
-		require.EqualValues(t, empty, eval[0])
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, notNull, eval[0])
+	})
+
+	t.Run("Is null checks succeed", func(t *testing.T) {
+		// Matching this expr should work, as "ts" is nil
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"ts": nil,
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(eval))
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, isNull, eval[0])
 	})
 }
 

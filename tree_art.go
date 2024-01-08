@@ -86,12 +86,12 @@ func (a *artTree) Remove(ctx context.Context, p ExpressionPart) error {
 	return ErrExpressionPartNotFound
 }
 
-func (a *artTree) Search(ctx context.Context, input any) ([]ExpressionPart, bool) {
+func (a *artTree) Search(ctx context.Context, variable string, input any) []ExpressionPart {
 	leaf, ok := a.searchLeaf(ctx, input)
 	if !ok || leaf == nil {
-		return nil, false
+		return nil
 	}
-	return leaf.Evals, ok
+	return leaf.Evals
 }
 
 func (a *artTree) searchLeaf(ctx context.Context, input any) (*Leaf, bool) {

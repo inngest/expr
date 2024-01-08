@@ -66,10 +66,11 @@ func NewAggregateEvaluator(
 	eval ExpressionEvaluator,
 ) AggregateEvaluator {
 	return &aggregator{
-		eval:      eval,
-		parser:    parser,
-		artIdents: map[string]PredicateTree{},
-		lock:      &sync.RWMutex{},
+		eval:        eval,
+		parser:      parser,
+		artIdents:   map[string]PredicateTree{},
+		nullLookups: map[string]PredicateTree{},
+		lock:        &sync.RWMutex{},
 	}
 }
 
@@ -201,14 +202,24 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	// Store all expression parts per group ID for returning.
 	found := map[groupID][]ExpressionPart{}
 
+	add := func(all []ExpressionPart) {
+		for _, eval := range all {
+			counts[eval.GroupID] += 1
+			if _, ok := found[eval.GroupID]; !ok {
+				found[eval.GroupID] = []ExpressionPart{}
+			}
+			found[eval.GroupID] = append(found[eval.GroupID], eval)
+		}
+	}
+
 	// Iterate through all known variables/idents in the aggregate tree to see if
 	// the data has those keys set.  If so, we can immediately evaluate the data with
 	// the tree.
 	//
 	// TODO: we should iterate through the expression in a top-down order, ensuring that if
 	// any of the top groups fail to match we quit early.
-	for k, tree := range a.artIdents {
-		x, err := jp.ParseString(k)
+	for path, tree := range a.artIdents {
+		x, err := jp.ParseString(path)
 		if err != nil {
 			return nil, err
 		}
@@ -217,28 +228,31 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 			continue
 		}
 
-		switch cast := res[0].(type) {
-		case string:
-			all, ok := tree.Search(ctx, cast)
-			if !ok {
-				continue
-			}
-
-			for _, eval := range all {
-				counts[eval.GroupID] += 1
-				if _, ok := found[eval.GroupID]; !ok {
-					found[eval.GroupID] = []ExpressionPart{}
-				}
-				found[eval.GroupID] = append(found[eval.GroupID], eval)
-			}
-		case nil:
-			panic("Yea")
-		default:
+		cast, ok := res[0].(string)
+		if !ok {
+			// This isn't a string, so we can't compare within the radix tree.
 			continue
 		}
+
+		add(tree.Search(ctx, path, cast))
 	}
 
-	// TODO: Match on nulls.
+	// Match on nulls.
+	for path, tree := range a.nullLookups {
+		x, err := jp.ParseString(path)
+		if err != nil {
+			return nil, err
+		}
+
+		res := x.Get(data)
+		if len(res) == 0 {
+			// This isn't present, which matches null in our overloads.  Set the
+			// value to nil.
+			res = []any{nil}
+		}
+		// This matches null, nil (as null), and any non-null items.
+		add(tree.Search(ctx, path, res[0]))
+	}
 
 	for k, count := range counts {
 		if int(k.Size()) > count {
@@ -442,8 +456,20 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 		a.artIdents[n.Predicate.Ident] = tree
 		return nil
 	case TreeTypeNullMatch:
-		// TODO: Implement null matching.
-		return errTreeUnimplemented
+		tree, ok := a.nullLookups[n.Predicate.Ident]
+		if !ok {
+			tree = newNullMatcher()
+		}
+		err := tree.Add(ctx, ExpressionPart{
+			GroupID:   n.GroupID,
+			Predicate: *n.Predicate,
+			Parsed:    parsed,
+		})
+		if err != nil {
+			return err
+		}
+		a.nullLookups[n.Predicate.Ident] = tree
+		return nil
 	}
 	return errTreeUnimplemented
 }
