@@ -20,7 +20,7 @@ func newEnv() *cel.Env {
 }
 
 func newParser() (TreeParser, error) {
-	return NewTreeParser(EnvParser(newEnv())), nil
+	return NewTreeParser(EnvCompiler(newEnv())), nil
 }
 
 type parseTestInput struct {
@@ -52,6 +52,7 @@ func TestParse(t *testing.T) {
 			eval := tex(test.input)
 			actual, err := p.Parse(ctx, eval)
 
+			require.NoError(t, err)
 			require.NotNil(t, actual.Root.GroupID)
 
 			// Shortcut to ensure the evaluable instance matches
@@ -1087,7 +1088,7 @@ func TestParse_LiftedVars(t *testing.T) {
 		rander = origRander
 	})
 
-	cachingCelParser := NewCachingParser(newEnv(), nil)
+	cachingCelParser := NewCachingCompiler(newEnv(), nil)
 
 	assert := func(t *testing.T, tests []parseTestInput) {
 		t.Helper()
@@ -1187,7 +1188,7 @@ func TestParse_LiftedVars(t *testing.T) {
 
 		// We should have had one hit, as `event == "bar"` and `event == "foo"`
 		// were lifted into the same expression `event == vars.a`
-		require.EqualValues(t, 1, cachingCelParser.(*cachingParser).Hits())
+		require.EqualValues(t, 1, cachingCelParser.(*cachingCompiler).Hits())
 	})
 }
 
@@ -1196,9 +1197,9 @@ func TestParse_LiftedVars(t *testing.T) {
 func TestParsedCELAST(t *testing.T) {
 	env := newEnv()
 
-	p := NewCachingParser(env, nil)
+	p := NewCachingCompiler(env, nil)
 
-	ast, iss, args := p.Parse(`event.data.id == "ok\" please"`)
+	ast, iss, args := p.Compile(`event.data.id == "ok\" please"`)
 	require.Nil(t, iss)
 	require.NotNil(t, ast)
 	require.NotNil(t, args)

@@ -16,11 +16,11 @@ import (
 )
 
 func BenchmarkCachingEvaluate1_000(b *testing.B) {
-	benchEval(1_000, NewCachingParser(newEnv(), nil), b)
+	benchEval(1_000, NewCachingCompiler(newEnv(), nil), b)
 }
 
 // func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
-func benchEval(i int, p CELParser, b *testing.B) {
+func benchEval(i int, p CELCompiler, b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		parser := NewTreeParser(p)
 		_ = evaluate(b, i, parser)
@@ -57,7 +57,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 
 func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
-	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
@@ -111,7 +111,7 @@ func TestEvaluate_Strings(t *testing.T) {
 
 func TestEvaluate_Concurrently(t *testing.T) {
 	ctx := context.Background()
-	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
@@ -146,7 +146,7 @@ func TestEvaluate_Concurrently(t *testing.T) {
 
 func TestEvaluate_ArrayIndexes(t *testing.T) {
 	ctx := context.Background()
-	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.ids[1] == "id-b" && event.data.ids[2] == "id-c"`)
@@ -192,7 +192,7 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 
 func TestEvaluate_Compound(t *testing.T) {
 	ctx := context.Background()
-	parser := NewTreeParser(NewCachingParser(newEnv(), nil))
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.a == "ok" && event.data.b == "yes" && event.data.c == "please"`)
