@@ -4,25 +4,45 @@ import (
 	"context"
 )
 
-type TreeType int
+type EngineType int
 
 const (
-	TreeTypeNone TreeType = iota
+	EngineTypeNone = iota
 
-	TreeTypeART
-	TreeTypeBTree
-	TreeTypeNullMatch
+	EngineTypeStringHash
+	EngineTypeNullMatch
+	// EngineTypeART
+	// EngineTypeBTree
 )
 
-// PredicateTree represents a tree which matches a predicate over
-// N expressions.
-//
-// For example, an expression may check string equality using an
-// ART tree, while LTE operations may check against a b+-tree.
-type PredicateTree interface {
+// MatchingEngine represents an engine (such as a b-tree, radix trie, or
+// simple hash map) which matches a predicate over many expressions.
+type MatchingEngine interface {
+	// Type returns the EngineType
+	Type() EngineType
+	// Match takes an input event, containing key:value pairs of data, and
+	// matches the given data to any ExpressionParts stored in the engine.
+	//
+	// Each implementation of the engine may differ on granularity of
+	// expression parts received.  Some may return false positives, but
+	// each MatchingEngine should NEVER omit ExpressionParts which match
+	// the given input.
+	Match(ctx context.Context, input map[string]any) ([]*ExpressionPart, error)
+	// Add adds a new expression part to the matching engine for future matches.
 	Add(ctx context.Context, p ExpressionPart) error
+	// Remove removes an expression part from the matching engine, ensuring that the
+	// ExpressionPart will not be matched in the future.
 	Remove(ctx context.Context, p ExpressionPart) error
-	Search(ctx context.Context, variable string, input any) []ExpressionPart
+
+	// Search searches for a given variable<>value match, returning any expression
+	// parts that match.
+	//
+	// Similar to match, each implementation of the engine may differ on
+	// granularity of expression parts received.  Some may return false positives by
+	// ignoring the variable name.  Note that each MatchingEngine should NEVER
+	// omit ExpressionParts which match the given input;  false positives are okay,
+	// but not returning valid matches must be impossible.
+	Search(ctx context.Context, variable string, input any) []*ExpressionPart
 }
 
 // Leaf represents the leaf within a tree.  This stores all expressions
@@ -35,7 +55,7 @@ type PredicateTree interface {
 // Note that there are many sub-clauses which need to be matched.  Each
 // leaf is a subset of a full expression.  Therefore,
 type Leaf struct {
-	Evals []ExpressionPart
+	Evals []*ExpressionPart
 }
 
 // ExpressionPart represents a predicate group which is part of an expression.

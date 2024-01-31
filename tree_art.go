@@ -14,7 +14,7 @@ var (
 	ErrExpressionPartNotFound = fmt.Errorf("expression part not found")
 )
 
-func newArtTree() PredicateTree {
+func newArtTree() MatchingEngine {
 	return &artTree{
 		lock: &sync.RWMutex{},
 		Tree: art.New(),
@@ -24,6 +24,47 @@ func newArtTree() PredicateTree {
 type artTree struct {
 	lock *sync.RWMutex
 	art.Tree
+	// TODO: Store a list of variable names used within adding items.
+}
+
+func (a *artTree) Type() EngineType {
+	// TODO
+	return EngineTypeNone
+}
+
+func (a *artTree) Match(ctx context.Context, input map[string]any) ([]*ExpressionPart, error) {
+	/*
+		// Iterate through all known variables/idents in the aggregate tree to see if
+		// the data has those keys set.  If so, we can immediately evaluate the data with
+		// the tree.
+		//
+		// TODO: we should iterate through the expression in a top-down order, ensuring that if
+		// any of the top groups fail to match we quit early.
+		for n, item := range a.artIdents {
+			tree := item
+			path := n
+			eg.Go(func() error {
+				x, err := jp.ParseString(path)
+				if err != nil {
+					return err
+				}
+				res := x.Get(data)
+				if len(res) != 1 {
+					return nil
+				}
+
+				cast, ok := res[0].(string)
+				if !ok {
+					// This isn't a string, so we can't compare within the radix tree.
+					return nil
+				}
+
+				add(tree.Search(ctx, path, cast))
+				return nil
+			})
+		}
+	*/
+	return nil, nil
 }
 
 func (a *artTree) Add(ctx context.Context, p ExpressionPart) error {
@@ -42,7 +83,7 @@ func (a *artTree) Add(ctx context.Context, p ExpressionPart) error {
 	if !ok {
 		// Insert the ExpressionPart as-is.
 		a.Insert(key, art.Value(&Leaf{
-			Evals: []ExpressionPart{p},
+			Evals: []*ExpressionPart{&p},
 		}))
 		return nil
 	}
@@ -51,7 +92,7 @@ func (a *artTree) Add(ctx context.Context, p ExpressionPart) error {
 	// value.  Many expressions may match on the same string, eg. a user may set
 	// up 3 matches for order ID "abc".  All 3 matches must be evaluated.
 	next := val.(*Leaf)
-	next.Evals = append(next.Evals, p)
+	next.Evals = append(next.Evals, &p)
 	a.Insert(key, next)
 	return nil
 }
@@ -76,7 +117,7 @@ func (a *artTree) Remove(ctx context.Context, p ExpressionPart) error {
 	next := val.(*Leaf)
 	// Remove the expression part from the leaf.
 	for n, eval := range next.Evals {
-		if p.Equals(eval) {
+		if p.Equals(*eval) {
 			next.Evals = append(next.Evals[:n], next.Evals[n+1:]...)
 			a.Insert(key, next)
 			return nil
@@ -86,7 +127,7 @@ func (a *artTree) Remove(ctx context.Context, p ExpressionPart) error {
 	return ErrExpressionPartNotFound
 }
 
-func (a *artTree) Search(ctx context.Context, variable string, input any) []ExpressionPart {
+func (a *artTree) Search(ctx context.Context, variable string, input any) []*ExpressionPart {
 	leaf, ok := a.searchLeaf(ctx, input)
 	if !ok || leaf == nil {
 		return nil
