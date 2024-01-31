@@ -3,8 +3,10 @@ package expr
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/google/cel-go/common/operators"
 	"github.com/ohler55/ojg/jp"
 	"golang.org/x/sync/errgroup"
@@ -83,7 +85,16 @@ func (n *stringLookup) Search(ctx context.Context, variable string, input any) [
 	if !ok {
 		return nil
 	}
-	return n.strings[str]
+	return n.strings[n.hash(str)]
+}
+
+// hash hashes strings quickly via xxhash.  this provides a _somewhat_ collision-free
+// lookup while reducing memory for strings.  note that internally, go maps store the
+// raw key as a string, which uses extra memory.  by compressing all strings via this
+// hash, memory usage grows predictably even with long strings.
+func (n *stringLookup) hash(input string) string {
+	ui := xxhash.Sum64String(input)
+	return strconv.FormatUint(ui, 36)
 }
 
 func (n *stringLookup) Add(ctx context.Context, p ExpressionPart) error {
@@ -93,7 +104,7 @@ func (n *stringLookup) Add(ctx context.Context, p ExpressionPart) error {
 
 	n.lock.Lock()
 	defer n.lock.Unlock()
-	val := p.Predicate.LiteralAsString()
+	val := n.hash(p.Predicate.LiteralAsString())
 
 	n.vars[p.Predicate.Ident] = struct{}{}
 
@@ -114,7 +125,7 @@ func (n *stringLookup) Remove(ctx context.Context, p ExpressionPart) error {
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	val := p.Predicate.LiteralAsString()
+	val := n.hash(p.Predicate.LiteralAsString())
 
 	coll, ok := n.strings[val]
 	if !ok {

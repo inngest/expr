@@ -42,7 +42,7 @@ func TestEngineStringmap(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			require.Equal(t, 2, len(s.strings["123"]))
+			require.Equal(t, 2, len(s.strings[s.hash("123")]))
 		})
 	})
 
