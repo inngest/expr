@@ -11,7 +11,9 @@ import (
 )
 
 var (
-	ErrEvaluableNotFound = fmt.Errorf("Evaluable instance not found in aggregator")
+	ErrEvaluableNotFound      = fmt.Errorf("Evaluable instance not found in aggregator")
+	ErrInvalidType            = fmt.Errorf("invalid type for tree")
+	ErrExpressionPartNotFound = fmt.Errorf("expression part not found")
 )
 
 // errEngineUnimplemented is used while we develop the aggregate tree library when trees

@@ -65,7 +65,6 @@ func TestEvaluate_Strings(t *testing.T) {
 	require.NoError(t, err)
 
 	n := 100_000
-	n = 1
 
 	addOtherExpressions(n, e)
 
