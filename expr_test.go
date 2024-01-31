@@ -264,10 +264,14 @@ func TestAggregateMatch(t *testing.T) {
 		require.NoError(t, err)
 		// False positives increase matches.
 		// require.EqualValues(t, 1, len(matched))
-		require.EqualValues(t,
-			`event.data.a == "yes"`,
-			matched[0].Parsed.Evaluable.GetExpression(),
-		)
+		found := false
+		for _, item := range matched {
+			if item.Parsed.Evaluable.GetExpression() == `event.data.a == "yes"` {
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
 	})
 
 	// When passing input.data.b, we should match only one expression.
