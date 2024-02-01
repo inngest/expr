@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,16 +28,59 @@ func benchEval(i int, p CELCompiler, b *testing.B) {
 	}
 }
 
+func newEvalLoader() *evalLoader {
+	return &evalLoader{
+		l: &sync.Mutex{},
+		d: map[uuid.UUID]Evaluable{},
+	}
+}
+
+type evalLoader struct {
+	l *sync.Mutex
+	d map[uuid.UUID]Evaluable
+}
+
+func (e *evalLoader) Load(ctx context.Context, evalID ...uuid.UUID) ([]Evaluable, error) {
+	e.l.Lock()
+	defer e.l.Unlock()
+	evals := []Evaluable{}
+	for _, id := range evalID {
+		eval, ok := e.d[id]
+		if !ok {
+			continue
+		}
+		evals = append(evals, eval)
+	}
+	return evals, nil
+}
+
+func (e *evalLoader) AddEval(eval Evaluable) Evaluable {
+	e.l.Lock()
+	defer e.l.Unlock()
+	e.d[eval.GetID()] = eval
+	return eval
+}
+
+func (e *evalLoader) AddStr(expr string) Evaluable {
+	e.l.Lock()
+	defer e.l.Unlock()
+	eval := tex(expr)
+	e.d[eval.GetID()] = eval
+	return eval
+}
+
 func evaluate(b *testing.B, i int, parser TreeParser) error {
 	b.StopTimer()
 	ctx := context.Background()
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
-	// Insert the match we want to see.
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
 	_, _ = e.Add(ctx, expected)
 
-	addOtherExpressions(i, e)
+	addOtherExpressions(i, e, loader)
 
 	b.StartTimer()
 
@@ -58,15 +102,19 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
 	n := 100_000
 
-	addOtherExpressions(n, e)
+	addOtherExpressions(n, e, loader)
 
 	require.EqualValues(t, n+1, e.Len())
 
@@ -114,13 +162,17 @@ func TestEvaluate_Strings(t *testing.T) {
 func TestEvaluate_Concurrently(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
-	addOtherExpressions(100_000, e)
+	addOtherExpressions(100_000, e, loader)
 
 	t.Run("It matches items", func(t *testing.T) {
 		wg := sync.WaitGroup{}
@@ -149,9 +201,13 @@ func TestEvaluate_Concurrently(t *testing.T) {
 func TestEvaluate_ArrayIndexes(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.ids[1] == "id-b" && event.data.ids[2] == "id-c"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
@@ -195,9 +251,13 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 func TestEvaluate_Compound(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
 
 	expected := tex(`event.data.a == "ok" && event.data.b == "yes" && event.data.c == "please"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
 	ok, err := e.Add(ctx, expected)
 	require.True(t, ok)
 	require.NoError(t, err)
@@ -238,12 +298,17 @@ func TestAggregateMatch(t *testing.T) {
 	ctx := context.Background()
 	parser, err := newParser()
 	require.NoError(t, err)
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+
+	loader := newEvalLoader()
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
 
 	// Add three expressions matching on "a", "b", "c" respectively.
 	keys := []string{"a", "b", "c"}
 	for _, k := range keys {
-		ok, err := e.Add(ctx, tex(fmt.Sprintf(`event.data.%s == "yes"`, k)))
+		eval := tex(fmt.Sprintf(`event.data.%s == "yes"`, k))
+		loader.AddEval(eval)
+		ok, err := e.Add(ctx, eval)
 		require.True(t, ok)
 		require.NoError(t, err)
 	}
@@ -266,7 +331,11 @@ func TestAggregateMatch(t *testing.T) {
 		// require.EqualValues(t, 1, len(matched))
 		found := false
 		for _, item := range matched {
-			if item.Parsed.Evaluable.GetExpression() == `event.data.a == "yes"` {
+			eval, err := loader.Load(ctx, item.Parsed.EvaluableID)
+			require.Nil(t, err)
+			require.EqualValues(t, 1, len(eval))
+
+			if eval[0].GetExpression() == `event.data.a == "yes"` {
 				found = true
 				break
 			}
@@ -310,10 +379,13 @@ func TestAddRemove(t *testing.T) {
 	parser, err := newParser()
 	require.NoError(t, err)
 
+	loader := newEvalLoader()
+
 	t.Run("With a basic aggregateable expression", func(t *testing.T) {
-		e := NewAggregateEvaluator(parser, testBoolEvaluator)
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
 
 		firstExpr := tex(`event.data.foo == "yes"`, "first-id")
+		loader.AddEval(firstExpr)
 
 		ok, err := e.Add(ctx, firstExpr)
 		require.NoError(t, err)
@@ -323,7 +395,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 1, e.AggregateableLen())
 
 		// Add the same expression again.
-		ok, err = e.Add(ctx, tex(`event.data.foo == "yes"`, "second-id"))
+		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.foo == "yes"`, "second-id")))
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, 2, e.Len())
@@ -361,7 +433,7 @@ func TestAddRemove(t *testing.T) {
 		})
 
 		// Add a new expression
-		ok, err = e.Add(ctx, tex(`event.data.another == "no"`))
+		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.another == "no"`)))
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, 2, e.Len())
@@ -407,9 +479,9 @@ func TestAddRemove(t *testing.T) {
 	})
 
 	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
-		e := NewAggregateEvaluator(parser, testBoolEvaluator)
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
 
-		ok, err := e.Add(ctx, tex(`event.data.foo != "no"`))
+		ok, err := e.Add(ctx, loader.AddEval(tex(`event.data.foo != "no"`)))
 		require.NoError(t, err)
 		require.False(t, ok)
 		require.Equal(t, 1, e.Len())
@@ -417,7 +489,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 0, e.AggregateableLen())
 
 		// Add the same expression again.
-		ok, err = e.Add(ctx, tex(`event.data.foo >= "no"`))
+		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.foo >= "no"`)))
 		require.NoError(t, err)
 		require.False(t, ok)
 		require.Equal(t, 2, e.Len())
@@ -425,7 +497,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 0, e.AggregateableLen())
 
 		// Add a new expression
-		ok, err = e.Add(ctx, tex(`event.data.another < "no"`))
+		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
 		require.False(t, ok)
 		require.Equal(t, 3, e.Len())
@@ -433,14 +505,14 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 0, e.AggregateableLen())
 
 		// And remove.
-		err = e.Remove(ctx, tex(`event.data.another < "no"`))
+		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
 		require.Equal(t, 2, e.Len())
 		require.Equal(t, 2, e.ConstantLen())
 		require.Equal(t, 0, e.AggregateableLen())
 
 		// And yeet out another non-existent expression
-		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
+		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another != "i'm not here" && a != "b"`)))
 		require.Error(t, ErrEvaluableNotFound, err)
 		require.Equal(t, 2, e.Len())
 		require.Equal(t, 2, e.ConstantLen())
@@ -453,9 +525,11 @@ func TestEmptyExpressions(t *testing.T) {
 	parser, err := newParser()
 	require.NoError(t, err)
 
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
+	loader := newEvalLoader()
 
-	empty := tex(``, "id-1")
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
+	empty := loader.AddEval(tex(``, "id-1"))
 
 	t.Run("Adding an empty expression succeeds", func(t *testing.T) {
 		ok, err := e.Add(ctx, empty)
@@ -493,9 +567,11 @@ func TestEvaluate_Null(t *testing.T) {
 	parser, err := newParser()
 	require.NoError(t, err)
 
-	e := NewAggregateEvaluator(parser, testBoolEvaluator)
-	notNull := tex(`event.ts != null`, "id-1")
-	isNull := tex(`event.ts == null`, "id-2")
+	loader := newEvalLoader()
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+	notNull := loader.AddEval(tex(`event.ts != null`, "id-1"))
+	isNull := loader.AddEval(tex(`event.ts == null`, "id-2"))
 
 	t.Run("Adding a `null` check succeeds and is aggregateable", func(t *testing.T) {
 		ok, err := e.Add(ctx, notNull)
@@ -580,8 +656,8 @@ func TestEvaluate_Null(t *testing.T) {
 	})
 
 	t.Run("Two idents aren't treated as nulls", func(t *testing.T) {
-		e := NewAggregateEvaluator(parser, testBoolEvaluator)
-		idents := tex("event.data.a == event.data.b")
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+		idents := loader.AddEval(tex("event.data.a == event.data.b"))
 		ok, err := e.Add(ctx, idents)
 		require.NoError(t, err)
 		require.False(t, ok)
@@ -618,7 +694,10 @@ type testEvaluable struct {
 }
 
 func (e testEvaluable) GetExpression() string { return e.expr }
-func (e testEvaluable) GetID() string         { return e.expr + e.id }
+func (e testEvaluable) GetID() uuid.UUID {
+	// deterministic IDs based off of expressions in testing.
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.expr+e.id))
+}
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {
 	env, _ := cel.NewEnv(
@@ -657,7 +736,7 @@ func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (
 	return result.Value().(bool), nil
 }
 
-func addOtherExpressions(n int, e AggregateEvaluator) {
+func addOtherExpressions(n int, e AggregateEvaluator, loader *evalLoader) {
 	ctx := context.Background()
 	wg := sync.WaitGroup{}
 	for i := 0; i < n; i++ {
@@ -672,7 +751,9 @@ func addOtherExpressions(n int, e AggregateEvaluator) {
 			}
 			str := hex.EncodeToString(byt)
 
-			_, err = e.Add(ctx, tex(fmt.Sprintf(`event.data.account_id == "%s"`, str)))
+			expr := tex(fmt.Sprintf(`event.data.account_id == "%s"`, str))
+			loader.AddEval(expr)
+			_, err = e.Add(ctx, expr)
 			if err != nil {
 				panic(err)
 			}

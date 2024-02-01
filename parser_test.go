@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/operators"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,8 +57,8 @@ func TestParse(t *testing.T) {
 			require.NotNil(t, actual.Root.GroupID)
 
 			// Shortcut to ensure the evaluable instance matches
-			if test.expected.Evaluable == nil {
-				test.expected.Evaluable = eval
+			if test.expected.EvaluableID == uuid.Nil {
+				test.expected.EvaluableID = eval.GetID()
 			}
 
 			require.NoError(t, err)
@@ -1101,8 +1102,8 @@ func TestParse_LiftedVars(t *testing.T) {
 			actual, err := p.Parse(ctx, eval)
 
 			// Shortcut to ensure the evaluable instance matches
-			if test.expected.Evaluable == nil {
-				test.expected.Evaluable = eval
+			if test.expected.EvaluableID == uuid.Nil {
+				test.expected.EvaluableID = eval.GetID()
 			}
 
 			// Convert the lifted arg interfaces to the same map values
