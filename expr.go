@@ -52,7 +52,7 @@ type AggregateEvaluator interface {
 	Evaluate(ctx context.Context, data map[string]any) ([]Evaluable, int32, error)
 
 	// AggregateMatch returns all expression parts which are evaluable given the input data.
-	AggregateMatch(ctx context.Context, data map[string]any) ([]*ExpressionPart, error)
+	AggregateMatch(ctx context.Context, data map[string]any) ([]*StoredExpressionPart, error)
 
 	// Len returns the total number of aggregateable and constantly matched expressions
 	// stored in the evaluator.
@@ -199,8 +199,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 // AggregateMatch attempts to match incoming data to all PredicateTrees, resulting in a selection
 // of parts of an expression that have matched.
-func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([]*ExpressionPart, error) {
-	result := []*ExpressionPart{}
+func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([]*StoredExpressionPart, error) {
+	result := []*StoredExpressionPart{}
 
 	a.lock.RLock()
 	defer a.lock.RUnlock()
@@ -213,7 +213,7 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	// Note that having a count >= the group ID value does not guarantee that the expression is valid.
 	counts := map[groupID]int{}
 	// Store all expression parts per group ID for returning.
-	found := map[groupID][]*ExpressionPart{}
+	found := map[groupID][]*StoredExpressionPart{}
 	// protect the above locks with a map.
 	lock := &sync.Mutex{}
 
@@ -228,7 +228,7 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		for _, eval := range matched {
 			counts[eval.GroupID] += 1
 			if _, ok := found[eval.GroupID]; !ok {
-				found[eval.GroupID] = []*ExpressionPart{}
+				found[eval.GroupID] = []*StoredExpressionPart{}
 			}
 			found[eval.GroupID] = append(found[eval.GroupID], eval)
 		}
@@ -444,7 +444,7 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 		}
 		return engine.Add(ctx, ExpressionPart{
 			GroupID:   n.GroupID,
-			Predicate: *n.Predicate,
+			Predicate: n.Predicate,
 			Parsed:    parsed,
 		})
 	}
@@ -492,7 +492,7 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 		}
 		return engine.Remove(ctx, ExpressionPart{
 			GroupID:   n.GroupID,
-			Predicate: *n.Predicate,
+			Predicate: n.Predicate,
 			Parsed:    parsed,
 		})
 	}
