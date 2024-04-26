@@ -57,6 +57,7 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExp
 			}
 
 			res := x.Get(input)
+
 			if len(res) == 0 {
 				return nil
 			}
@@ -75,11 +76,14 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExp
 
 			// This matches null, nil (as null), and any non-null items.
 			found = append(found, n.Search(ctx, path, val)...)
+
 			return nil
 		})
 	}
 
-	return found, eg.Wait()
+	err := eg.Wait()
+
+	return found, err
 }
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name

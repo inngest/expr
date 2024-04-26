@@ -78,6 +78,7 @@ func NewAggregateEvaluator(
 		engines: map[EngineType]MatchingEngine{
 			EngineTypeStringHash: newStringEqualityMatcher(),
 			EngineTypeNullMatch:  newNullMatcher(),
+			EngineTypeBTree:      newNumberMatcher(),
 		},
 		lock: &sync.RWMutex{},
 	}
@@ -240,7 +241,9 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		if int(k.Size()) > count {
 			// The GroupID required more comparisons to equate to true than
 			// we had, so this could never evaluate to true.  Skip this.
-			continue
+			//
+			// TODO: Optimize and fix.
+			// continue
 		}
 		result = append(result, found[k]...)
 	}
@@ -273,6 +276,7 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+
 		if !ok && aggregateable {
 			// This is the first time we're seeing a non-aggregateable
 			// group, so add it to the constants list.
@@ -345,14 +349,14 @@ func (a *aggregator) removeConstantEvaluable(ctx context.Context, eval Evaluable
 }
 
 func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedExpression, op nodeOp) (bool, error) {
-	if len(node.Ors) > 0 {
-		// If there are additional branches, don't bother to add this to the aggregate tree.
-		// Mark this as a non-exhaustive addition and skip immediately.
-		//
-		// TODO: Allow ORs _only if_ the ORs are not nested, eg. the ORs are basic predicate
-		// groups that themselves have no branches.
-		return false, nil
-	}
+	// if len(node.Ors) > 0 {
+	// 	// If there are additional branches, don't bother to add this to the aggregate tree.
+	// 	// Mark this as a non-exhaustive addition and skip immediately.
+	// 	//
+	// 	// TODO: Allow ORs _only if_ the ORs are not nested, eg. the ORs are basic predicate
+	// 	// groups that themselves have no branches.
+	// 	return false, nil
+	// }
 
 	if len(node.Ands) > 0 {
 		for _, n := range node.Ands {
@@ -401,6 +405,13 @@ func engineType(p Predicate) EngineType {
 	// switch on type of literal AND operator type.  int64/float64 literals require
 	// btrees, texts require ARTs, and so on.
 	switch p.Literal.(type) {
+	case int, int64, float64:
+		if p.Operator == operators.NotEquals {
+			// StringHash is only used for matching on equality.
+			return EngineTypeNone
+		}
+		// return EngineTypeNone
+		return EngineTypeBTree
 	case string:
 		if p.Operator == operators.Equals {
 			// StringHash is only used for matching on equality.
@@ -449,27 +460,6 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 		})
 	}
 	return errEngineUnimplemented
-
-	/*
-		switch engineType(*n.Predicate) {
-		case EngineTypeNullMatch:
-			tree, ok := a.nullLookups[n.Predicate.Ident]
-			if !ok {
-				tree = newNullMatcher()
-			}
-			err := tree.Add(ctx, ExpressionPart{
-				GroupID:   n.GroupID,
-				Predicate: *n.Predicate,
-				Parsed:    parsed,
-			})
-			if err != nil {
-				return err
-			}
-			a.nullLookups[n.Predicate.Ident] = tree
-			return nil
-		}
-		return errEngineUnimplemented
-	*/
 }
 
 func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
@@ -525,9 +515,8 @@ func isAggregateable(n *Node) bool {
 		//
 		// TODO: Add GT(e)/LT(e) matching with tree iteration.
 		return n.Predicate.Operator == operators.Equals
-	case int64, float64:
-		// TODO: Add binary tree matching for ints/floats
-		return false
+	case int, int64, float64:
+		return true
 	case nil:
 		// This is null, which is supported and a simple lookup to check
 		// if the event's key in question is present and is not nil.
