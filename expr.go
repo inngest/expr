@@ -272,7 +272,6 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (bool, error) {
 
 	aggregateable := true
 	for _, g := range parsed.RootGroups() {
-		// TODO: Within IterGroup, add recursive parsing of groups.
 		ok, err := a.iterGroup(ctx, g, parsed, a.addNode)
 		if err != nil {
 			return false, err
@@ -372,7 +371,6 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 	}
 
 	all := node.Ands
-
 	if node.Predicate != nil {
 		if !isAggregateable(node) {
 			return false, nil

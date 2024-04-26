@@ -559,6 +559,8 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 			ident = item.AsIdent()
 		case celast.LiteralKind:
 			literal = item.AsLiteral().Value()
+		case celast.MapKind:
+			literal = item.AsMap()
 		case celast.SelectKind:
 			// This is an expression, ie. "event.data.foo"  Iterate from the root field upwards
 			// to get the full ident.

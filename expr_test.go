@@ -99,6 +99,23 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	return nil
 }
 
+func TestAdd(t *testing.T) {
+	ctx := context.Background()
+
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+	loader := newEvalLoader()
+
+	expr := tex(`event.data == {"a":1}`)
+	loader.AddEval(expr)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+	_, err := e.Add(ctx, expr)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, e.ConstantLen())
+
+}
+
 func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
