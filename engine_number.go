@@ -40,6 +40,7 @@ func (n numbers) Type() EngineType {
 }
 
 func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExpressionPart, error) {
+	l := &sync.Mutex{}
 	found := []*StoredExpressionPart{}
 	eg := errgroup.Group{}
 
@@ -70,7 +71,9 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExp
 			}
 
 			// This matches null, nil (as null), and any non-null items.
+			l.Lock()
 			found = append(found, n.Search(ctx, path, val)...)
+			l.Unlock()
 
 			return nil
 		})
