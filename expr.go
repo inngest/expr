@@ -238,13 +238,14 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 	// Validate that groups meet the minimum size.
 	for k, count := range counts {
-		if int(k.Size()) > count {
-			// The GroupID required more comparisons to equate to true than
-			// we had, so this could never evaluate to true.  Skip this.
-			//
-			// TODO: Optimize and fix.
-			// continue
-		}
+		// if int(k.Size()) > count {
+		// 	// The GroupID required more comparisons to equate to true than
+		// 	// we had, so this could never evaluate to true.  Skip this.
+		// 	//
+		// 	// TODO: Optimize and fix.
+		// 	continue
+		// }
+		_ = count
 		result = append(result, found[k]...)
 	}
 

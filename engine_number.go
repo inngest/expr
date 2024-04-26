@@ -24,11 +24,6 @@ func newNumberMatcher() MatchingEngine {
 	}
 }
 
-type numberChild struct {
-	val   float64
-	parts []*StoredExpressionPart
-}
-
 type numbers struct {
 	lock *sync.RWMutex
 
