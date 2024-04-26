@@ -333,6 +333,18 @@ func (p Predicate) LiteralAsString() string {
 	return str
 }
 
+func (p Predicate) LiteralAsFloat64() (float64, error) {
+	switch v := p.Literal.(type) {
+	case int:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case float64:
+		return v, nil
+	}
+	return 0, fmt.Errorf("not an int64 or float64")
+}
+
 // expr is wrapper around the CEL AST which stores parsing-related data.
 type expr struct {
 	ast celast.Expr
@@ -547,6 +559,8 @@ func callToPredicate(item celast.Expr, negated bool, vars LiftedArgs) *Predicate
 			ident = item.AsIdent()
 		case celast.LiteralKind:
 			literal = item.AsLiteral().Value()
+		case celast.MapKind:
+			literal = item.AsMap()
 		case celast.SelectKind:
 			// This is an expression, ie. "event.data.foo"  Iterate from the root field upwards
 			// to get the full ident.

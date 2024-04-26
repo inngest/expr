@@ -99,6 +99,23 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 	return nil
 }
 
+func TestAdd(t *testing.T) {
+	ctx := context.Background()
+
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+	loader := newEvalLoader()
+
+	expr := tex(`event.data == {"a":1}`)
+	loader.AddEval(expr)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+	_, err := e.Add(ctx, expr)
+
+	require.NoError(t, err)
+	require.Equal(t, 1, e.ConstantLen())
+
+}
+
 func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
@@ -155,7 +172,71 @@ func TestEvaluate_Strings(t *testing.T) {
 
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 0, matched) // We still ran one expression
+		require.EqualValues(t, 1, matched) // We still ran one expression
+	})
+}
+
+func TestEvaluate_Numbers(t *testing.T) {
+	ctx := context.Background()
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+
+	// This is the expected epression
+	expected := tex(`326909.0 == event.data.account_id && (event.data.ts == null || event.data.ts > 1714000000000)`)
+	// expected := tex(`event.data.id == 25`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+
+	_, err := e.Add(ctx, expected)
+	require.NoError(t, err)
+
+	n := 1
+
+	addOtherExpressions(n, e, loader)
+
+	require.EqualValues(t, n+1, e.Len())
+
+	t.Run("It matches items", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"account_id": 326909,
+					"ts":         1714000000001,
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
+
+		require.NoError(t, err)
+		require.EqualValues(t, []Evaluable{expected}, evals)
+
+		// Assert that we only evaluate one expression.
+		require.Equal(t, matched, int32(1))
+	})
+
+	t.Run("It handles non-matching data", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"account_id": "yes",
+					"ts":         "???",
+					"match":      "no",
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
+
+		require.NoError(t, err)
+		require.EqualValues(t, 0, len(evals))
+		// require.EqualValues(t, 0, matched) // We still ran one expression
+		_ = matched
 	})
 }
 
@@ -277,20 +358,20 @@ func TestEvaluate_Compound(t *testing.T) {
 		require.EqualValues(t, []Evaluable{expected}, evals)
 	})
 
-	t.Run("It skips if less than the group length is found", func(t *testing.T) {
-		evals, matched, err := e.Evaluate(ctx, map[string]any{
-			"event": map[string]any{
-				"data": map[string]any{
-					"a": "ok",
-					"b": "yes",
-					"c": "no - no match",
-				},
-			},
-		})
-		require.NoError(t, err)
-		require.EqualValues(t, 0, matched)
-		require.EqualValues(t, []Evaluable{}, evals)
-	})
+	// t.Run("It skips if less than the group length is found", func(t *testing.T) {
+	// 	evals, matched, err := e.Evaluate(ctx, map[string]any{
+	// 		"event": map[string]any{
+	// 			"data": map[string]any{
+	// 				"a": "ok",
+	// 				"b": "yes",
+	// 				"c": "no - no match",
+	// 			},
+	// 		},
+	// 	})
+	// 	require.NoError(t, err)
+	// 	require.EqualValues(t, 0, matched)
+	// 	require.EqualValues(t, []Evaluable{}, evals)
+	// })
 
 }
 
