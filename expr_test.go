@@ -358,6 +358,8 @@ func TestEvaluate_Compound(t *testing.T) {
 		require.EqualValues(t, []Evaluable{expected}, evals)
 	})
 
+	// Note: we do not use group IDs for optimization right now.
+	//
 	// t.Run("It skips if less than the group length is found", func(t *testing.T) {
 	// 	evals, matched, err := e.Evaluate(ctx, map[string]any{
 	// 		"event": map[string]any{
@@ -452,6 +454,66 @@ func TestAggregateMatch(t *testing.T) {
 		matched, err := e.AggregateMatch(ctx, input)
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(matched))
+	})
+}
+
+func TestMacros(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	loader := newEvalLoader()
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load)
+	eval := tex(`event.data.ok == "true" || event.data.ids.exists(id, id == 'c')`)
+	loader.AddEval(eval)
+	ok, err := e.Add(ctx, eval)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	t.Run("It doesn't evaluate macros", func(t *testing.T) {
+
+		input := map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"ok":  nil,
+					"ids": []string{"a", "b", "c"},
+				},
+			},
+		}
+		evals, matched, err := e.Evaluate(ctx, input)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(evals))
+		require.EqualValues(t, 1, matched)
+
+		t.Run("Failing match", func(t *testing.T) {
+			input = map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ok":  nil,
+						"ids": []string{"nope"},
+					},
+				},
+			}
+			evals, matched, err = e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(evals))
+			require.EqualValues(t, 1, matched)
+		})
+
+		t.Run("Partial macro", func(t *testing.T) {
+			input = map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ok":  "true",
+						"ids": []string{"nope"},
+					},
+				},
+			}
+			evals, matched, err = e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(evals), evals)
+			require.EqualValues(t, 1, matched)
+		})
 	})
 }
 
