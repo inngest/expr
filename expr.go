@@ -343,14 +343,11 @@ func (a *aggregator) removeConstantEvaluable(ctx context.Context, eval Evaluable
 }
 
 func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedExpression, op nodeOp) (bool, error) {
-	if len(node.Ors) > 0 {
-		// If there are additional branches, don't bother to add this to the aggregate tree.
-		// Mark this as a non-exhaustive addition and skip immediately.
-		//
-		// TODO: Allow ORs _only if_ the ORs are not nested, eg. the ORs are basic predicate
-		// groups that themselves have no branches.
-		return false, nil
-	}
+	// It's possible that if there are additional branches, don't bother to add this to the aggregate tree.
+	// Mark this as a non-exhaustive addition and skip immediately.
+	// if len(node.Ors) > 0 {
+	// 	return false, nil
+	// }
 
 	if len(node.Ands) > 0 {
 		for _, n := range node.Ands {
