@@ -149,6 +149,11 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		expr := item
 		go func() {
 			defer a.sem.Release(1)
+			defer func() {
+				if r := recover(); r != nil {
+					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
+				}
+			}()
 
 			atomic.AddInt32(&matched, 1)
 
@@ -203,6 +208,12 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 		expr := match
 		go func() {
+			defer a.sem.Release(1)
+			defer func() {
+				if r := recover(); r != nil {
+					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
+				}
+			}()
 
 			atomic.AddInt32(&matched, 1)
 			// NOTE: We don't need to add lifted expression variables,
@@ -210,14 +221,14 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			// string.
 			ok, evalerr := a.eval(ctx, expr, data)
 
-			seen[match.GetID()] = struct{}{}
+			seen[expr.GetID()] = struct{}{}
 
 			if evalerr != nil {
 				err = errors.Join(err, evalerr)
 				return
 			}
 			if ok {
-				result = append(result, match)
+				result = append(result, expr)
 			}
 		}()
 	}
