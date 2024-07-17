@@ -210,10 +210,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 	eg = errgroup.Group{}
 	for _, match := range evaluables {
-		if _, ok := seen[match.GetID()]; ok {
-			continue
-		}
-
 		if err := a.sem.Acquire(ctx, 1); err != nil {
 			return result, matched, err
 		}
@@ -226,6 +222,10 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
 				}
 			}()
+
+			if _, ok := seen[expr.GetID()]; ok {
+				return nil
+			}
 
 			atomic.AddInt32(&matched, 1)
 			// NOTE: We don't need to add lifted expression variables,

@@ -203,8 +203,8 @@ func TestEvaluate_Numbers(t *testing.T) {
 			evals, matched, err := e.Evaluate(ctx, map[string]any{
 				"event": map[string]any{
 					"data": map[string]any{
-						"account_id": 326909,
-						"ts":         1714000000001,
+						"id": 4797009,
+						"ts": 2015211850340,
 					},
 				},
 			})
