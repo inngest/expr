@@ -292,21 +292,27 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	}
 
 	// Validate that groups meet the minimum size.
-	for k, count := range counts {
-		if int(k.Size()) > count {
-			// The GroupID required more comparisons to equate to true than
-			// we had, so this could never evaluate to true.  Skip this.
+	for groupID, matchingCount := range counts {
+		requiredSize := int(groupID.Size()) // The total req size from the group ID
 
-			for _, i := range found[k] {
-				// NOTE: We currently don't add items with OR predicates to the
-				// matching engine, so we cannot use group sizes if the expr part
-				// has an OR.
-				if len(i.Parsed.Root.Ors) == 0 {
-					continue
-				}
+		if matchingCount > requiredSize {
+			// The matching count met the group size;  all results are safe.
+			result = append(result, found[groupID]...)
+			continue
+		}
+
+		// The GroupID required more comparisons to equate to true than
+		// we had, so this could never evaluate to true.  Skip this.
+		//
+		// NOTE: We currently don't add items with OR predicates to the
+		// matching engine, so we cannot use group sizes if the expr part
+		// has an OR.
+		for _, i := range found[groupID] {
+			if len(i.Parsed.Root.Ors) == 0 {
+				// for now, mark this as viable as it had an OR
+				result = append(result, i)
 			}
 		}
-		result = append(result, found[k]...)
 	}
 
 	return result, nil
