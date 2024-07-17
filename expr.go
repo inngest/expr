@@ -293,14 +293,19 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 	// Validate that groups meet the minimum size.
 	for k, count := range counts {
-		// if int(k.Size()) > count {
-		// 	// The GroupID required more comparisons to equate to true than
-		// 	// we had, so this could never evaluate to true.  Skip this.
-		// 	//
-		// 	// TODO: Optimize and fix.
-		// 	continue
-		// }
-		_ = count
+		if int(k.Size()) > count {
+			// The GroupID required more comparisons to equate to true than
+			// we had, so this could never evaluate to true.  Skip this.
+
+			for _, i := range found[k] {
+				// NOTE: We currently don't add items with OR predicates to the
+				// matching engine, so we cannot use group sizes if the expr part
+				// has an OR.
+				if len(i.Parsed.Root.Ors) == 0 {
+					continue
+				}
+			}
+		}
 		result = append(result, found[k]...)
 	}
 
@@ -400,10 +405,6 @@ func (a *aggregator) removeConstantEvaluable(ctx context.Context, eval Evaluable
 func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedExpression, op nodeOp) (bool, error) {
 	// It's possible that if there are additional branches, don't bother to add this to the aggregate tree.
 	// Mark this as a non-exhaustive addition and skip immediately.
-	// if len(node.Ors) > 0 {
-	// 	return false, nil
-	// }
-
 	if len(node.Ands) > 0 {
 		for _, n := range node.Ands {
 			if !n.HasPredicate() || len(n.Ors) > 0 {
@@ -416,6 +417,8 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 		}
 	}
 
+	// XXX: Here we must add the OR groups to make group IDs a success.
+
 	all := node.Ands
 	if node.Predicate != nil {
 		if !isAggregateable(node) {
@@ -425,14 +428,7 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 		all = append(node.Ands, node)
 	}
 
-	// Create a new group ID which tracks the number of expressions that must match
-	// within this group in order for the group to pass.
-	//
-	// This includes ALL ands, plus at least one OR.
-	//
-	// When checking an incoming event, we match the event against each node's
-	// ident/variable.  Using the group ID, we can see if we've matched N necessary
-	// items from the same identifier.  If so, the evaluation is true.
+	// Iterate through and add every predicate to each engine.
 	for _, n := range all {
 		err := op(ctx, n, parsed)
 		if err == errEngineUnimplemented {
