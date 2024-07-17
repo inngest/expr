@@ -73,7 +73,7 @@ func NewAggregateEvaluator(
 	evalLoader EvaluableLoader,
 	concurrency int64,
 ) AggregateEvaluator {
-	if concurrency == 0 {
+	if concurrency <= 0 {
 		concurrency = 1
 	}
 
