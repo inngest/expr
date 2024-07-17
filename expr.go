@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
+	"golang.org/x/sync/semaphore"
 )
 
 var (
@@ -70,11 +71,17 @@ func NewAggregateEvaluator(
 	parser TreeParser,
 	eval ExpressionEvaluator,
 	evalLoader EvaluableLoader,
+	concurrency int64,
 ) AggregateEvaluator {
+	if concurrency == 0 {
+		concurrency = 1
+	}
+
 	return &aggregator{
 		eval:   eval,
 		parser: parser,
 		loader: evalLoader,
+		sem:    semaphore.NewWeighted(concurrency),
 		engines: map[EngineType]MatchingEngine{
 			EngineTypeStringHash: newStringEqualityMatcher(),
 			EngineTypeNullMatch:  newNullMatcher(),
@@ -91,6 +98,8 @@ type aggregator struct {
 
 	// engines records all engines
 	engines map[EngineType]MatchingEngine
+
+	sem *semaphore.Weighted
 
 	// lock prevents concurrent updates of data
 	lock *sync.RWMutex
@@ -131,25 +140,35 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	if err != nil {
 		return nil, 0, err
 	}
-	for _, expr := range constantEvals {
-		atomic.AddInt32(&matched, 1)
 
-		if expr.GetExpression() == "" {
-			result = append(result, expr)
-			continue
+	for _, item := range constantEvals {
+		if err := a.sem.Acquire(ctx, 1); err != nil {
+			return result, matched, err
 		}
 
-		// NOTE: We don't need to add lifted expression variables,
-		// because match.Parsed.Evaluable() returns the original expression
-		// string.
-		ok, evalerr := a.eval(ctx, expr, data)
-		if evalerr != nil {
-			err = errors.Join(err, evalerr)
-			continue
-		}
-		if ok {
-			result = append(result, expr)
-		}
+		expr := item
+		go func() {
+			defer a.sem.Release(1)
+
+			atomic.AddInt32(&matched, 1)
+
+			if expr.GetExpression() == "" {
+				result = append(result, expr)
+				return
+			}
+
+			// NOTE: We don't need to add lifted expression variables,
+			// because match.Parsed.Evaluable() returns the original expression
+			// string.
+			ok, evalerr := a.eval(ctx, expr, data)
+			if evalerr != nil {
+				err = errors.Join(err, evalerr)
+				return
+			}
+			if ok {
+				result = append(result, expr)
+			}
+		}()
 	}
 
 	matches, merr := a.AggregateMatch(ctx, data)
@@ -178,21 +197,29 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			continue
 		}
 
-		atomic.AddInt32(&matched, 1)
-		// NOTE: We don't need to add lifted expression variables,
-		// because match.Parsed.Evaluable() returns the original expression
-		// string.
-		ok, evalerr := a.eval(ctx, match, data)
-
-		seen[match.GetID()] = struct{}{}
-
-		if evalerr != nil {
-			err = errors.Join(err, evalerr)
-			continue
+		if err := a.sem.Acquire(ctx, 1); err != nil {
+			return result, matched, err
 		}
-		if ok {
-			result = append(result, match)
-		}
+
+		expr := match
+		go func() {
+
+			atomic.AddInt32(&matched, 1)
+			// NOTE: We don't need to add lifted expression variables,
+			// because match.Parsed.Evaluable() returns the original expression
+			// string.
+			ok, evalerr := a.eval(ctx, expr, data)
+
+			seen[match.GetID()] = struct{}{}
+
+			if evalerr != nil {
+				err = errors.Join(err, evalerr)
+				return
+			}
+			if ok {
+				result = append(result, match)
+			}
+		}()
 	}
 
 	return result, matched, err
