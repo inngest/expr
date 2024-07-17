@@ -308,7 +308,7 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		// matching engine, so we cannot use group sizes if the expr part
 		// has an OR.
 		for _, i := range found[groupID] {
-			if len(i.Parsed.Root.Ors) == 0 {
+			if len(i.Parsed.Root.Ors) > 0 {
 				// for now, mark this as viable as it had an OR
 				result = append(result, i)
 			}
