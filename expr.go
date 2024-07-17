@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -132,7 +133,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err     error
 		matched = int32(0)
 		result  = []Evaluable{}
-		wg      sync.WaitGroup
+		s       sync.Mutex
 	)
 
 	// TODO: Concurrently match constant expressions using a semaphore for capacity.
@@ -142,16 +143,15 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		return nil, 0, err
 	}
 
+	eg := errgroup.Group{}
 	for _, item := range constantEvals {
 		if err := a.sem.Acquire(ctx, 1); err != nil {
 			return result, matched, err
 		}
 
 		expr := item
-		wg.Add(1)
-		go func() {
+		eg.Go(func() error {
 			defer a.sem.Release(1)
-			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
@@ -161,8 +161,10 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			atomic.AddInt32(&matched, 1)
 
 			if expr.GetExpression() == "" {
+				s.Lock()
 				result = append(result, expr)
-				return
+				s.Unlock()
+				return nil
 			}
 
 			// NOTE: We don't need to add lifted expression variables,
@@ -170,13 +172,19 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			// string.
 			ok, evalerr := a.eval(ctx, expr, data)
 			if evalerr != nil {
-				err = errors.Join(err, evalerr)
-				return
+				return evalerr
 			}
 			if ok {
+				s.Lock()
 				result = append(result, expr)
+				s.Unlock()
 			}
-		}()
+			return nil
+		})
+	}
+
+	if werr := eg.Wait(); werr != nil {
+		err = errors.Join(err, werr)
 	}
 
 	matches, merr := a.AggregateMatch(ctx, data)
@@ -200,6 +208,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// ID's length.
 	seen := map[uuid.UUID]struct{}{}
 
+	eg = errgroup.Group{}
 	for _, match := range evaluables {
 		if _, ok := seen[match.GetID()]; ok {
 			continue
@@ -210,10 +219,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		expr := match
-		wg.Add(1)
-		go func() {
+		eg.Go(func() error {
 			defer a.sem.Release(1)
-			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
@@ -227,18 +234,21 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			ok, evalerr := a.eval(ctx, expr, data)
 
 			seen[expr.GetID()] = struct{}{}
-
 			if evalerr != nil {
-				err = errors.Join(err, evalerr)
-				return
+				return evalerr
 			}
 			if ok {
+				s.Lock()
 				result = append(result, expr)
+				s.Unlock()
 			}
-		}()
+			return nil
+		})
 	}
 
-	wg.Wait()
+	if werr := eg.Wait(); werr != nil {
+		err = errors.Join(err, werr)
+	}
 
 	return result, matched, err
 }
