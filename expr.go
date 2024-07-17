@@ -132,6 +132,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err     error
 		matched = int32(0)
 		result  = []Evaluable{}
+		wg      sync.WaitGroup
 	)
 
 	// TODO: Concurrently match constant expressions using a semaphore for capacity.
@@ -147,8 +148,10 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		expr := item
+		wg.Add(1)
 		go func() {
 			defer a.sem.Release(1)
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
@@ -207,8 +210,10 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		expr := match
+		wg.Add(1)
 		go func() {
 			defer a.sem.Release(1)
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
@@ -232,6 +237,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			}
 		}()
 	}
+
+	wg.Wait()
 
 	return result, matched, err
 }
