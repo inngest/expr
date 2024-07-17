@@ -172,7 +172,7 @@ func TestEvaluate_Strings(t *testing.T) {
 
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 1, matched) // We still ran one expression
+		require.EqualValues(t, 0, matched)
 	})
 }
 

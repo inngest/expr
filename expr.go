@@ -295,7 +295,7 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	for groupID, matchingCount := range counts {
 		requiredSize := int(groupID.Size()) // The total req size from the group ID
 
-		if matchingCount > requiredSize {
+		if matchingCount >= requiredSize {
 			// The matching count met the group size;  all results are safe.
 			result = append(result, found[groupID]...)
 			continue
