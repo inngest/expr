@@ -154,7 +154,7 @@ func (p ParsedExpression) RootGroups() []*Node {
 }
 
 func (p ParsedExpression) Valid() bool {
-	if p.Root.Predicate == nil && p.Root.GroupID.String() == "" {
+	if p.Root.Predicate == nil {
 		return false
 	}
 	// TODO: support this in the future
