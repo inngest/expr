@@ -1320,7 +1320,3 @@ func TestRootGroups(t *testing.T) {
 	})
 
 }
-
-func strPtr(v string) *string {
-	return &v
-}
