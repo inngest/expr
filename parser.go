@@ -114,10 +114,6 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 	}
 
 	node.normalize()
-	if !node.HasPredicate() {
-		return nil, fmt.Errorf("parsing error: invalid syntax detected")
-	}
-
 	return &ParsedExpression{
 		Root:        *node,
 		Vars:        vars,
