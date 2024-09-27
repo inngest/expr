@@ -114,6 +114,10 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 	}
 
 	node.normalize()
+	if !node.HasPredicate() {
+		return nil, fmt.Errorf("parsing error: invalid syntax detected")
+	}
+
 	return &ParsedExpression{
 		Root:        *node,
 		Vars:        vars,
@@ -151,18 +155,6 @@ func (p ParsedExpression) RootGroups() []*Node {
 		return p.Root.Ors
 	}
 	return []*Node{&p.Root}
-}
-
-func (p ParsedExpression) Valid() bool {
-	if p.Root.Predicate == nil {
-		return false
-	}
-	// TODO: support this in the future
-	if p.HasMacros {
-		return false
-	}
-
-	return true
 }
 
 // PredicateGroup represents a group of predicates that must all pass in order to execute the
