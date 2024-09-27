@@ -1055,6 +1055,47 @@ func TestParse(t *testing.T) {
 
 	})
 
+	// TODO: Should figure how to support it in the future
+	t.Run("It marks macros and zero value for invalid ones", func(t *testing.T) {
+		tests := []parseTestInput{
+			{
+				input:  `has(event.name)`,
+				output: "name select <nil>",
+				expected: ParsedExpression{
+					Root: Node{
+						GroupID: newGroupID(1),
+						Predicate: &Predicate{
+							Ident:    "name",
+							Operator: "select",
+						},
+					},
+					HasMacros: true,
+				},
+			},
+			{
+				input:    `event.name.StartWith("hello")`,
+				output:   "",
+				expected: ParsedExpression{},
+			},
+			{
+				input:  `event.data.num.filter(x, x >= 10)`,
+				output: "x comprehension <nil>",
+				expected: ParsedExpression{
+					Root: Node{
+						GroupID: newGroupID(1),
+						Predicate: &Predicate{
+							Ident:    "x",
+							Operator: "comprehension",
+						},
+					},
+					HasMacros: true,
+				},
+			},
+		}
+
+		assert(t, tests)
+	})
+
 	// TODO
 	/*
 		t.Run("It deduplicates expressions", func(t *testing.T) {
@@ -1278,4 +1319,8 @@ func TestRootGroups(t *testing.T) {
 		r.Equal(2, len(actual.RootGroups()))
 	})
 
+}
+
+func strPtr(v string) *string {
+	return &v
 }

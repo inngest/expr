@@ -153,6 +153,18 @@ func (p ParsedExpression) RootGroups() []*Node {
 	return []*Node{&p.Root}
 }
 
+func (p ParsedExpression) Valid() bool {
+	if p.Root.Predicate == nil && p.Root.GroupID.String() == "" {
+		return false
+	}
+	// TODO: support this in the future
+	if p.HasMacros {
+		return false
+	}
+
+	return true
+}
+
 // PredicateGroup represents a group of predicates that must all pass in order to execute the
 // given expression.  For example, this might contain two predicates representing an expression
 // with two operators combined with "&&".
@@ -376,9 +388,20 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs, rand RandomReader) ([]
 		stack = stack[1:]
 
 		switch item.ast.Kind() {
+		case celast.SelectKind:
+			c := item.ast.AsSelect()
+			child := &Node{
+				Predicate: &Predicate{
+					Ident:    c.FieldName(),
+					Operator: "select",
+				},
+			}
+			child.normalize()
+			result = append(result, child)
+			hasMacros = true
 		case celast.ComprehensionKind:
 			// These are not supported.  A comprehension is eg. `.exists` and must
-			// awlays run naively right now.
+			// always run naively right now.
 			c := item.ast.AsComprehension()
 			child := &Node{
 				Predicate: &Predicate{
