@@ -112,7 +112,7 @@ func TestAdd(t *testing.T) {
 	_, err := e.Add(ctx, expr)
 
 	require.NoError(t, err)
-	require.Equal(t, 1, e.ConstantLen())
+	require.Equal(t, 1, e.SlowLen())
 
 }
 
@@ -404,7 +404,7 @@ func TestEvaluate_Compound(t *testing.T) {
 	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
 
 	ok, err := e.Add(ctx, expected)
-	require.True(t, ok)
+	require.Greater(t, ok, float64(0))
 	require.NoError(t, err)
 
 	t.Run("It matches items", func(t *testing.T) {
@@ -456,7 +456,7 @@ func TestAggregateMatch(t *testing.T) {
 		eval := tex(fmt.Sprintf(`event.data.%s == "yes"`, k))
 		loader.AddEval(eval)
 		ok, err := e.Add(ctx, eval)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
 		require.NoError(t, err)
 	}
 
@@ -532,7 +532,7 @@ func TestMacros(t *testing.T) {
 	loader.AddEval(eval)
 	ok, err := e.Add(ctx, eval)
 	require.NoError(t, err)
-	require.False(t, ok)
+	require.Equal(t, ok, float64(-1)) // Not supported.
 
 	t.Run("It doesn't evaluate macros", func(t *testing.T) {
 
@@ -596,18 +596,18 @@ func TestAddRemove(t *testing.T) {
 
 		ok, err := e.Add(ctx, firstExpr)
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 1, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
 
 		// Add the same expression again.
 		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.foo == "yes"`, "second-id")))
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 2, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 2, e.FastLen())
 
 		t.Run("It removes duplicate expressions with different IDs", func(t *testing.T) {
 			// Matching this expr should work before removal.
@@ -622,10 +622,11 @@ func TestAddRemove(t *testing.T) {
 
 			err = e.Remove(ctx, tex(`event.data.foo == "yes"`, "second-id"))
 			require.NoError(t, err)
-			require.True(t, ok)
+			require.Greater(t, ok, float64(0))
+
 			require.Equal(t, 1, e.Len())
-			require.Equal(t, 0, e.ConstantLen())
-			require.Equal(t, 1, e.AggregateableLen())
+			require.Equal(t, 0, e.SlowLen())
+			require.Equal(t, 1, e.FastLen())
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -642,10 +643,11 @@ func TestAddRemove(t *testing.T) {
 		// Add a new expression
 		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.another == "no"`)))
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
+
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 2, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 2, e.FastLen())
 
 		// Remove all expressions
 		t.Run("It removes an aggregateable expression", func(t *testing.T) {
@@ -661,10 +663,11 @@ func TestAddRemove(t *testing.T) {
 
 			err = e.Remove(ctx, tex(`event.data.another == "no"`))
 			require.NoError(t, err)
-			require.True(t, ok)
+			require.Greater(t, ok, float64(0))
+
 			require.Equal(t, 1, e.Len()) // The first expr is remaining.
-			require.Equal(t, 0, e.ConstantLen())
-			require.Equal(t, 1, e.AggregateableLen())
+			require.Equal(t, 0, e.SlowLen())
+			require.Equal(t, 1, e.FastLen())
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -681,8 +684,8 @@ func TestAddRemove(t *testing.T) {
 		err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
 		require.Error(t, ErrEvaluableNotFound, err)
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 1, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
 	})
 
 	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
@@ -690,40 +693,40 @@ func TestAddRemove(t *testing.T) {
 
 		ok, err := e.Add(ctx, loader.AddEval(tex(`event.data.foo != "no"`)))
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.Equal(t, ok, float64(0))
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 
 		// Add the same expression again.
 		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.foo >= "no"`)))
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.Equal(t, ok, float64(0))
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 
 		// Add a new expression
 		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.Equal(t, ok, float64(0))
 		require.Equal(t, 3, e.Len())
-		require.Equal(t, 3, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 3, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 
 		// And remove.
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
+		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 0, e.FastLen())
 
 		// And yeet out another non-existent expression
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another != "i'm not here" && a != "b"`)))
 		require.Error(t, ErrEvaluableNotFound, err)
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 	})
 }
 
@@ -741,10 +744,10 @@ func TestEmptyExpressions(t *testing.T) {
 	t.Run("Adding an empty expression succeeds", func(t *testing.T) {
 		ok, err := e.Add(ctx, empty)
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.Equal(t, ok, float64(-1)) // TODO Check this failing case
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 	})
 
 	t.Run("Empty expressions always match", func(t *testing.T) {
@@ -764,8 +767,8 @@ func TestEmptyExpressions(t *testing.T) {
 		err := e.Remove(ctx, empty)
 		require.NoError(t, err)
 		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 	})
 }
 
@@ -783,15 +786,15 @@ func TestEvaluate_Null(t *testing.T) {
 	t.Run("Adding a `null` check succeeds and is aggregateable", func(t *testing.T) {
 		ok, err := e.Add(ctx, notNull)
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
 
 		ok, err = e.Add(ctx, isNull)
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Greater(t, ok, float64(0))
 
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 2, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 2, e.FastLen())
 	})
 
 	t.Run("Not null checks succeed", func(t *testing.T) {
@@ -825,8 +828,8 @@ func TestEvaluate_Null(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 1, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
 
 		// We should still match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
@@ -845,8 +848,8 @@ func TestEvaluate_Null(t *testing.T) {
 		err = e.Remove(ctx, isNull)
 		require.NoError(t, err)
 		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 
 		// We should no longer match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
@@ -867,11 +870,11 @@ func TestEvaluate_Null(t *testing.T) {
 		idents := loader.AddEval(tex("event.data.a == event.data.b"))
 		ok, err := e.Add(ctx, idents)
 		require.NoError(t, err)
-		require.False(t, ok)
+		require.Equal(t, ok, float64(0))
 
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.ConstantLen())
-		require.Equal(t, 0, e.AggregateableLen())
+		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
 
 		eval, count, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
