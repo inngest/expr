@@ -426,7 +426,7 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 
 	for _, g := range parsed.RootGroups() {
 		s, err := a.iterGroup(ctx, g, parsed, a.removeNode)
-		if err == ErrExpressionPartNotFound {
+		if errors.Is(err, ErrExpressionPartNotFound) {
 			return ErrEvaluableNotFound
 		}
 
@@ -557,17 +557,15 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 	for _, n := range all {
 		err := op(ctx, n, parsed)
 
-		switch err {
-		case nil:
+		switch {
+		case err == nil:
 			// This is okay.
 			stats.AddFast()
 			continue
-
-		case errEngineUnimplemented:
+		case errors.Is(err, errEngineUnimplemented):
 			// Not yet added to aggregator
 			stats.AddSlow()
 			continue
-
 		default:
 			// Some other error.
 			stats.AddSlow()
