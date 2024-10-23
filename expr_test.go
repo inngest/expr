@@ -754,6 +754,20 @@ func TestAddRemove(t *testing.T) {
 		require.EqualValues(t, 1, count)
 		require.EqualValues(t, 1, len(eval))
 		require.NoError(t, err)
+
+		// Matching this expr should now fail.
+		eval, count, err = e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"foo": "yea",
+					"bar": "baz",
+				},
+			},
+		})
+
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, 0, len(eval))
+		require.NoError(t, err)
 	})
 }
 
