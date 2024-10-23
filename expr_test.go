@@ -697,6 +697,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
+		require.Equal(t, 0, e.MixedLen())
 
 		// Add the same expression again.
 		ok, err = e.Add(ctx, loader.AddEval(tex(`event.data.foo >= "no"`)))
@@ -727,6 +728,32 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 2, e.Len())
 		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
+	})
+
+	t.Run("Partial aggregates", func(t *testing.T) {
+
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
+		ok, err := e.Add(ctx, loader.AddEval(tex(`event.data.foo == "yea" && event.data.bar != "baz"`)))
+		require.NoError(t, err)
+		require.Equal(t, ok, float64(0.5))
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 0, e.FastLen())
+		require.Equal(t, 1, e.MixedLen())
+
+		// Matching this expr should now fail.
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"foo": "yea",
+					"bar": "lol",
+				},
+			},
+		})
+
+		require.EqualValues(t, 1, count)
+		require.EqualValues(t, 1, len(eval))
+		require.NoError(t, err)
 	})
 }
 
