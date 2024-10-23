@@ -186,7 +186,9 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
+					s.Lock()
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
+					s.Unlock()
 				}
 			}()
 
@@ -251,7 +253,9 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
+					s.Lock()
 					err = errors.Join(err, fmt.Errorf("recovered from panic in evaluate: %v", r))
+					s.Unlock()
 				}
 			}()
 
