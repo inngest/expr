@@ -471,6 +471,9 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 }
 
 func (a *aggregator) removeConstantEvaluable(_ context.Context, eval Evaluable) error {
+	a.lock.Lock()
+	defer a.lock.Unlock()
+
 	// Find the index of the evaluable in constants and yank out.
 	idx := -1
 	for n, item := range a.constants {
@@ -483,9 +486,7 @@ func (a *aggregator) removeConstantEvaluable(_ context.Context, eval Evaluable) 
 		return ErrEvaluableNotFound
 	}
 
-	a.lock.Lock()
 	a.constants = append(a.constants[:idx], a.constants[idx+1:]...)
-	a.lock.Unlock()
 	return nil
 }
 
