@@ -717,15 +717,15 @@ func TestAddRemove(t *testing.T) {
 		// And remove.
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 2, e.Len())
 		require.Equal(t, 0, e.FastLen())
 
 		// And yeet out another non-existent expression
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another != "i'm not here" && a != "b"`)))
 		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 	})
 }

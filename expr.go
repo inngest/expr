@@ -412,10 +412,11 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 		if err == ErrExpressionPartNotFound {
 			return ErrEvaluableNotFound
 		}
+
 		if err != nil {
+			_ = a.removeConstantEvaluable(ctx, eval)
 			return err
 		}
-
 		stats.Merge(s)
 	}
 
@@ -424,6 +425,7 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 		if err := a.removeConstantEvaluable(ctx, eval); err != nil {
 			return err
 		}
+		return nil
 	}
 
 	if stats.Slow() == 0 {
