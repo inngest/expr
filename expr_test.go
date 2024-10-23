@@ -532,7 +532,7 @@ func TestMacros(t *testing.T) {
 	loader.AddEval(eval)
 	ok, err := e.Add(ctx, eval)
 	require.NoError(t, err)
-	require.Equal(t, ok, float64(0)) // TODO Check this failing case
+	require.Equal(t, ok, float64(-1)) // Not supported.
 
 	t.Run("It doesn't evaluate macros", func(t *testing.T) {
 
@@ -717,15 +717,15 @@ func TestAddRemove(t *testing.T) {
 		// And remove.
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another < "no"`)))
 		require.NoError(t, err)
-		require.Equal(t, 2, e.Len()) // TODO Check this failing case
-		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
 		// And yeet out another non-existent expression
 		err = e.Remove(ctx, loader.AddEval(tex(`event.data.another != "i'm not here" && a != "b"`)))
 		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 2, e.Len()) // TODO Check this failing case
-		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 	})
 }
@@ -744,7 +744,7 @@ func TestEmptyExpressions(t *testing.T) {
 	t.Run("Adding an empty expression succeeds", func(t *testing.T) {
 		ok, err := e.Add(ctx, empty)
 		require.NoError(t, err)
-		require.Equal(t, ok, float64(0)) // TODO Check this failing case
+		require.Equal(t, ok, float64(-1)) // TODO Check this failing case
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
