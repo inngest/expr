@@ -30,4 +30,4 @@ jobs:
         with:
           go-version-file: ./go.mod
       - name: Test
-        run: go test ./... -v -count=1
+        run: go test ./... -race -v -count=1
