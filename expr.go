@@ -130,23 +130,23 @@ type aggregator struct {
 
 // Len returns the total number of aggregateable and constantly matched expressions
 // stored in the evaluator.
-func (a aggregator) Len() int {
+func (a *aggregator) Len() int {
 	return int(a.fastLen) + len(a.mixed) + len(a.constants)
 }
 
 // FastLen returns the number of expressions being matched by aggregated trees.
-func (a aggregator) FastLen() int {
+func (a *aggregator) FastLen() int {
 	return int(a.fastLen)
 }
 
 // MixedLen returns the number of expressions being matched by aggregated trees.
-func (a aggregator) MixedLen() int {
+func (a *aggregator) MixedLen() int {
 	return len(a.mixed)
 }
 
 // SlowLen returns the total number of expressions that must constantly
 // be matched due to non-aggregateable clauses in their expressions.
-func (a aggregator) SlowLen() int {
+func (a *aggregator) SlowLen() int {
 	return len(a.constants)
 }
 
@@ -480,12 +480,12 @@ func (a *aggregator) removeConstantEvaluable(ctx context.Context, eval Evaluable
 type exprAggregateStats [2]int
 
 // Fast returns the number of aggregateable predicates in the iterated expr
-func (e exprAggregateStats) Fast() int {
+func (e *exprAggregateStats) Fast() int {
 	return e[0]
 }
 
 // Slow returns the number of non-aggregateable predicates in the iterated expr
-func (e exprAggregateStats) Slow() int {
+func (e *exprAggregateStats) Slow() int {
 	return e[1]
 }
 
