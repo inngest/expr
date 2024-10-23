@@ -240,6 +240,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
 	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
 	// ID's length.
+	seenMu := &sync.Mutex{}
 	seen := map[uuid.UUID]struct{}{}
 
 	eg = errgroup.Group{}
@@ -259,8 +260,13 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 				}
 			}()
 
+			seenMu.Lock()
 			if _, ok := seen[expr.GetID()]; ok {
+				seenMu.Unlock()
 				return nil
+			} else {
+				seen[expr.GetID()] = struct{}{}
+				seenMu.Unlock()
 			}
 
 			atomic.AddInt32(&matched, 1)
@@ -270,7 +276,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			// string.
 			ok, evalerr := a.eval(ctx, expr, data)
 
-			seen[expr.GetID()] = struct{}{}
 			if evalerr != nil {
 				return evalerr
 			}
