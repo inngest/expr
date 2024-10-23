@@ -1060,7 +1060,7 @@ func TestParse(t *testing.T) {
 		tests := []parseTestInput{
 			{
 				input:  `has(event.name)`,
-				output: "name select <nil>",
+				output: "name select null",
 				expected: ParsedExpression{
 					Root: Node{
 						GroupID: newGroupID(1),
@@ -1079,7 +1079,7 @@ func TestParse(t *testing.T) {
 			},
 			{
 				input:  `event.data.num.filter(x, x >= 10)`,
-				output: "x comprehension <nil>",
+				output: "x comprehension null",
 				expected: ParsedExpression{
 					Root: Node{
 						GroupID: newGroupID(1),
