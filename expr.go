@@ -312,8 +312,6 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	counts := map[groupID]int{}
 	// Store all expression parts per group ID for returning.
 	found := map[groupID][]*StoredExpressionPart{}
-	// protect the above locks with a map.
-	lock := &sync.Mutex{}
 
 	for _, engine := range a.engines {
 		matched, err := engine.Match(ctx, data)
@@ -322,7 +320,6 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		}
 
 		// Add all found items from the engine to the above list.
-		lock.Lock()
 		for _, eval := range matched {
 			counts[eval.GroupID] += 1
 			if _, ok := found[eval.GroupID]; !ok {
@@ -330,7 +327,6 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 			}
 			found[eval.GroupID] = append(found[eval.GroupID], eval)
 		}
-		lock.Unlock()
 	}
 
 	// Validate that groups meet the minimum size.
