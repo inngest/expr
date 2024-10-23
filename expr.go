@@ -131,22 +131,30 @@ type aggregator struct {
 // Len returns the total number of aggregateable and constantly matched expressions
 // stored in the evaluator.
 func (a *aggregator) Len() int {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
 	return int(a.fastLen) + len(a.mixed) + len(a.constants)
 }
 
 // FastLen returns the number of expressions being matched by aggregated trees.
 func (a *aggregator) FastLen() int {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
 	return int(a.fastLen)
 }
 
 // MixedLen returns the number of expressions being matched by aggregated trees.
 func (a *aggregator) MixedLen() int {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
 	return len(a.mixed)
 }
 
 // SlowLen returns the total number of expressions that must constantly
 // be matched due to non-aggregateable clauses in their expressions.
 func (a *aggregator) SlowLen() int {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
 	return len(a.constants)
 }
 
@@ -160,7 +168,9 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 	// TODO: Concurrently match constant expressions using a semaphore for capacity.
 	// Match constant expressions always.
+	a.lock.RLock()
 	constantEvals, err := a.loader(ctx, a.constants...)
+	a.lock.RUnlock()
 	if err != nil {
 		return nil, 0, err
 	}
