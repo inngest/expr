@@ -931,6 +931,109 @@ func TestEvaluate_Null(t *testing.T) {
 	})
 }
 
+func TestMixedEngines(t *testing.T) {
+	ctx := context.Background()
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+
+	loader := newEvalLoader()
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0).(*aggregator)
+
+	t.Run("Assert mixed engines", func(t *testing.T) {
+		exprs := []string{
+			// each id has 1, 2, 3 as a TS
+			`event.data.id == "a" && (event.ts == null || event.ts > 1)`,
+			`event.data.id == "a" && (event.ts == null || event.ts > 2)`,
+			`event.data.id == "a" && (event.ts == null || event.ts > 3)`,
+
+			`event.data.id == "b" && (event.ts == null || event.ts > 1)`,
+			`event.data.id == "b" && (event.ts == null || event.ts > 2)`,
+			`event.data.id == "b" && (event.ts == null || event.ts > 3)`,
+
+			`event.data.id == "c" && (event.ts == null || event.ts > 1)`,
+			`event.data.id == "c" && (event.ts == null || event.ts > 2)`,
+			`event.data.id == "c" && (event.ts == null || event.ts > 3)`,
+		}
+
+		for n, expr := range exprs {
+			eval := tex(expr, fmt.Sprintf("id-%d", n))
+			loader.AddEval(eval)
+			ratio, err := e.Add(ctx, eval)
+			require.NoError(t, err)
+			require.EqualValues(t, 1.0, ratio)
+		}
+
+		t.Run("Success matches", func(t *testing.T) {
+			// Should match no expressions - event.ts <= 1, 2, and 3.
+			eval, count, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"id": "a",
+					},
+					"ts": 1,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(eval))
+			require.EqualValues(t, 0, count)
+
+			// Should match just the first "a" expression
+			eval, count, err = e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"id": "a",
+					},
+					"ts": 2,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(eval))
+			require.EqualValues(t, 1, count)
+			require.Equal(t, `event.data.id == "a" && (event.ts == null || event.ts > 1)`, eval[0].GetExpression())
+
+			// Should match the first and second "a" expr.
+			eval, count, err = e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"id": "a",
+					},
+					"ts": 3,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 2, len(eval))
+			require.EqualValues(t, 2, count)
+
+			// Null matches
+			eval, count, err = e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"id": "a",
+					},
+					"ts": nil,
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 3, len(eval))
+			require.EqualValues(t, 3, count)
+		})
+	})
+
+	t.Run("Fail matches", func(t *testing.T) {
+		eval, count, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"id": "z",
+				},
+				"ts": 5,
+			},
+		})
+		require.NoError(t, err)
+		require.EqualValues(t, 0, len(eval))
+		require.EqualValues(t, 0, count)
+	})
+}
+
 // tex represents a test Evaluable expression
 func tex(expr string, ids ...string) Evaluable {
 	return testEvaluable{
