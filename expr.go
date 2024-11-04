@@ -357,16 +357,15 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		// matching engine, so we cannot use group sizes if the expr part
 		// has an OR.
 		for _, i := range found[groupID] {
+			// if this is purely aggregateable, we're safe to rely on group IDs.
+			//
+			// So, we only need to care if this expression is mixed.  If it's mixed,
+			// we can ignore group IDs for the time being.
 			if _, ok := a.mixed[i.Parsed.EvaluableID]; ok {
-				// for now, mark this as viable as it had an OR
+				// this wasn't fully aggregatable so evaluate it.
 				result = append(result, i)
 			}
 
-			// if this is purely aggregateable, we're safe to rely on group IDs.
-			if _, ok := a.constants[i.Parsed.EvaluableID]; ok {
-				// for now, mark this as viable as it had an OR
-				result = append(result, i)
-			}
 		}
 	}
 
