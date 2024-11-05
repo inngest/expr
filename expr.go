@@ -240,8 +240,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err = errors.Join(err, merr)
 	}
 
-	fmt.Sprintf("%#v\n", matches)
-
 	// Load all evaluable instances directly from the match
 	a.lock.RLock()
 	n = 0
