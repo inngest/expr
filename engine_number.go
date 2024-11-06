@@ -39,7 +39,7 @@ func (n numbers) Type() EngineType {
 	return EngineTypeBTree
 }
 
-func (n *numbers) Match(ctx context.Context, input map[string]any) (matched, denied []*StoredExpressionPart, err error) {
+func (n *numbers) Match(ctx context.Context, input map[string]any) (matched []*StoredExpressionPart, err error) {
 	l := &sync.Mutex{}
 	matched = []*StoredExpressionPart{}
 	eg := errgroup.Group{}
@@ -80,7 +80,7 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) (matched, den
 		})
 	}
 
-	return matched, denied, eg.Wait()
+	return matched, eg.Wait()
 }
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name

@@ -137,7 +137,7 @@ func TestEngineNumber(t *testing.T) {
 	})
 
 	t.Run("It matches data", func(t *testing.T) {
-		found, denied, err := n.Match(ctx, map[string]any{
+		found, err := n.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id": 123,
@@ -146,7 +146,6 @@ func TestEngineNumber(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, 2, len(found))
-		require.Equal(t, 0, len(denied))
 		require.EqualValues(t, found[0].PredicateID, a.Hash())
 		require.EqualValues(t, found[1].PredicateID, c.Hash())
 	})

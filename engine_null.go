@@ -32,7 +32,7 @@ func (n *nullLookup) Type() EngineType {
 	return EngineTypeNullMatch
 }
 
-func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched, denied []*StoredExpressionPart, err error) {
+func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched []*StoredExpressionPart, err error) {
 	l := &sync.Mutex{}
 	matched = []*StoredExpressionPart{}
 	eg := errgroup.Group{}
@@ -65,7 +65,7 @@ func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched, d
 		})
 	}
 
-	return matched, denied, eg.Wait()
+	return matched, eg.Wait()
 }
 
 func (n *nullLookup) Search(ctx context.Context, variable string, input any) (matched []*StoredExpressionPart) {

@@ -59,10 +59,10 @@ func (s stringLookup) Type() EngineType {
 	return EngineTypeStringHash
 }
 
-func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*StoredExpressionPart, []*StoredExpressionPart, error) {
+func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*StoredExpressionPart, error) {
 	l := &sync.Mutex{}
 
-	matched, denied := []*StoredExpressionPart{}, []*StoredExpressionPart{}
+	matched := []*StoredExpressionPart{}
 	eg := errgroup.Group{}
 
 	// First, handle equality amtching.
@@ -125,7 +125,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 		})
 	}
 
-	return matched, denied, eg.Wait()
+	return matched, eg.Wait()
 }
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name

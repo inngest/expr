@@ -319,7 +319,7 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 	for _, engine := range a.engines {
 		// we explicitly ignore the deny path for now.
-		matched, _, err := engine.Match(ctx, data)
+		matched, err := engine.Match(ctx, data)
 		if err != nil {
 			return nil, err
 		}

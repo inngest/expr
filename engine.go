@@ -30,7 +30,7 @@ type MatchingEngine interface {
 	// expression parts received.  Some may return false positives, but
 	// each MatchingEngine should NEVER omit ExpressionParts which match
 	// the given input.
-	Match(ctx context.Context, input map[string]any) (matched, denied []*StoredExpressionPart, err error)
+	Match(ctx context.Context, input map[string]any) (matched []*StoredExpressionPart, err error)
 
 	// Add adds a new expression part to the matching engine for future matches.
 	Add(ctx context.Context, p ExpressionPart) error

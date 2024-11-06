@@ -92,7 +92,7 @@ func TestEngineStringmap(t *testing.T) {
 
 	t.Run("inequality", func(t *testing.T) {
 		t.Run("first case: neq-1", func(t *testing.T) {
-			parts, _, err := s.Match(ctx, map[string]any{
+			parts, err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "neq-1"},
 				},
@@ -103,7 +103,7 @@ func TestEngineStringmap(t *testing.T) {
 		})
 
 		t.Run("second case: neq-1", func(t *testing.T) {
-			parts, _, err := s.Match(ctx, map[string]any{
+			parts, err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "neq-2"},
 				},
@@ -114,7 +114,7 @@ func TestEngineStringmap(t *testing.T) {
 		})
 
 		t.Run("third case: both", func(t *testing.T) {
-			parts, _, err := s.Match(ctx, map[string]any{
+			parts, err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "both"},
 				},
@@ -125,7 +125,7 @@ func TestEngineStringmap(t *testing.T) {
 	})
 
 	t.Run("It matches data, including neq", func(t *testing.T) {
-		found, denied, err := s.Match(ctx, map[string]any{
+		found, err := s.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id":  "123",
@@ -135,11 +135,10 @@ func TestEngineStringmap(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, 4, len(found)) // matching plus inequality
-		require.Equal(t, 0, len(denied))
 	})
 
 	t.Run("It matches data with null neq", func(t *testing.T) {
-		found, denied, err := s.Match(ctx, map[string]any{
+		found, err := s.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id": "123",
@@ -149,7 +148,6 @@ func TestEngineStringmap(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, 4, len(found)) // matching plus inequality
-		require.Equal(t, 0, len(denied))
 	})
 
 }
@@ -213,7 +211,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	err = s.Add(ctx, c)
 	require.NoError(t, err)
 
-	parts, denied, err := s.Match(ctx, map[string]any{
+	parts, err := s.Match(ctx, map[string]any{
 		"async": map[string]any{
 			"data": map[string]any{
 				"var_a": "a",
@@ -223,7 +221,6 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, 0, len(denied))
 	require.Equal(t, 2, len(parts))
 	for _, v := range parts {
 		// Never matches B, as B isn't complete.
