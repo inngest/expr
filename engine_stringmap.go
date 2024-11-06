@@ -87,9 +87,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 			l.Lock()
 			// Only match each predicate once.  Not equals may match on any particular
 			// key.
-			for _, v := range m {
-				matched = append(matched, v)
-			}
+			matched = append(matched, m...)
 			l.Unlock()
 			return nil
 		})
@@ -117,9 +115,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 			l.Lock()
 			// Only match each predicate once.  Not equals may match on any particular
 			// key.
-			for _, v := range m {
-				matched = append(matched, v)
-			}
+			matched = append(matched, m...)
 			l.Unlock()
 			return nil
 		})
