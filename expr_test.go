@@ -806,7 +806,8 @@ func TestAddRemove(t *testing.T) {
 		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
 		ok, err := e.Add(ctx, loader.AddEval(tex(`event.data.foo == "yea" && event.data.bar != "baz"`)))
 		require.NoError(t, err)
-		require.Equal(t, ok, float64(0.5))
+		// now fully aggregated
+		require.Equal(t, ok, float64(1))
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 0, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
