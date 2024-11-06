@@ -19,7 +19,7 @@ var (
 )
 
 const (
-	defaultConcurrency = 5_000
+	defaultConcurrency = 1000
 )
 
 // errEngineUnimplemented is used while we develop the aggregate tree library when trees
