@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
+	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -89,16 +89,17 @@ func NewAggregateEvaluator(
 		eval:   eval,
 		parser: parser,
 		loader: evalLoader,
-		sem:    semaphore.NewWeighted(concurrency),
+		sem:    semaphore.NewWeighted(concurrency), // TODO: remove this
 		engines: map[EngineType]MatchingEngine{
-			EngineTypeStringHash: newStringEqualityMatcher(),
-			EngineTypeNullMatch:  newNullMatcher(),
-			EngineTypeBTree:      newNumberMatcher(),
+			EngineTypeStringHash: newStringEqualityMatcher(concurrency),
+			EngineTypeNullMatch:  newNullMatcher(concurrency),
+			EngineTypeBTree:      newNumberMatcher(concurrency),
 		},
 		lock:      &sync.RWMutex{},
 		evals:     map[uuid.UUID]Evaluable{},
 		constants: map[uuid.UUID]struct{}{},
 		mixed:     map[uuid.UUID]struct{}{},
+		workers:   pool.New().WithErrors().WithMaxGoroutines(int(concurrency)),
 	}
 }
 
@@ -131,6 +132,9 @@ type aggregator struct {
 	// constants tracks evaluable IDs that must always be evaluated, due to
 	// the expression containing non-aggregateable clauses.
 	constants map[uuid.UUID]struct{}
+
+	// workers creates a pool of goroutines for running aggregation tasks
+	workers *pool.ErrorPool
 }
 
 // Len returns the total number of aggregateable and constantly matched expressions
@@ -171,8 +175,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		s       sync.Mutex
 	)
 
-	eg := errgroup.Group{}
-
 	a.lock.RLock()
 	for uuid := range a.constants {
 		item, ok := a.evals[uuid]
@@ -186,7 +188,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		expr := item
-		eg.Go(func() error {
+		a.workers.Go(func() error {
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
@@ -222,7 +224,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	}
 	a.lock.RUnlock()
 
-	if werr := eg.Wait(); werr != nil {
+	if werr := a.workers.Wait(); werr != nil {
 		err = errors.Join(err, werr)
 	}
 
@@ -250,7 +252,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			return result, matched, err
 		}
 
-		eg.Go(func() error {
+		a.workers.Go(func() error {
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
@@ -289,7 +291,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	}
 	a.lock.RUnlock()
 
-	if werr := eg.Wait(); werr != nil {
+	if werr := a.workers.Wait(); werr != nil {
 		err = errors.Join(err, werr)
 	}
 
