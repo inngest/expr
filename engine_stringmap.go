@@ -140,7 +140,7 @@ func (n *stringLookup) equalitySearch(ctx context.Context, variable string, inpu
 
 	// Iterate through all matching values, and only take those expressions which match our
 	// current variable name.
-	filtered := make([]*StoredExpressionPart, len(n.equality))
+	filtered := make([]*StoredExpressionPart, len(n.equality[hashedInput]))
 	i := 0
 	for _, part := range n.equality[hashedInput] {
 		if part.Ident != nil && *part.Ident != variable {
