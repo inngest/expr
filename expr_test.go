@@ -810,8 +810,8 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, ok, float64(1))
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
-		require.Equal(t, 1, e.MixedLen())
+		require.Equal(t, 1, e.FastLen())
+		require.Equal(t, 0, e.MixedLen())
 
 		// Matching this expr should now fail.
 		eval, count, err := e.Evaluate(ctx, map[string]any{
@@ -837,7 +837,7 @@ func TestAddRemove(t *testing.T) {
 			},
 		})
 
-		require.EqualValues(t, 1, count)
+		require.EqualValues(t, 0, count)
 		require.EqualValues(t, 0, len(eval))
 		require.NoError(t, err)
 	})
