@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"github.com/cespare/xxhash/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/google/cel-go/common/operators"
 	"github.com/ohler55/ojg/jp"
 	"golang.org/x/sync/errgroup"
@@ -63,97 +62,91 @@ func (s stringLookup) Type() EngineType {
 func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*StoredExpressionPart, []*StoredExpressionPart, error) {
 	l := &sync.Mutex{}
 
-	matched, denied := map[uint64]*StoredExpressionPart{}, map[uint64]*StoredExpressionPart{}
+	matched, denied := []*StoredExpressionPart{}, []*StoredExpressionPart{}
 	eg := errgroup.Group{}
-
-	search := func(ctx context.Context, path, value string) {
-		m, d := n.Search(ctx, path, value)
-		l.Lock()
-
-		// Only match each predicate once.  Not equals may match on any particular
-		// key.
-		for _, v := range m {
-			matched[v.PredicateID] = v
-		}
-		for _, v := range d {
-			denied[v.PredicateID] = v
-		}
-
-		l.Unlock()
-	}
-
-	paths := map[string]struct{}{}
 
 	// First, handle equality amtching.
 	for item := range n.vars {
 		path := item
-		paths[path] = struct{}{}
 		eg.Go(func() error {
 			x, err := jp.ParseString(path)
 			if err != nil {
 				return err
 			}
 
-			res := x.Get(input)
-			if len(res) == 0 {
-				search(ctx, path, "")
-				return nil
+			// default to an empty string
+			str := ""
+			if res := x.Get(input); len(res) > 0 {
+				if value, ok := res[0].(string); ok {
+					str = value
+				}
 			}
 
-			str, ok := res[0].(string)
-			if !ok {
-				search(ctx, path, "")
-				return nil
-			}
+			m := n.equalitySearch(ctx, path, str)
 
-			search(ctx, path, str)
+			l.Lock()
+			// Only match each predicate once.  Not equals may match on any particular
+			// key.
+			for _, v := range m {
+				matched = append(matched, v)
+			}
+			l.Unlock()
 			return nil
 		})
 	}
 
-	// Then, iterate through the
+	// Then, iterate through the inequality matches.
+	for item := range n.inequality {
+		path := item
+		eg.Go(func() error {
+			x, err := jp.ParseString(path)
+			if err != nil {
+				return err
+			}
 
-	err := eg.Wait()
+			// default to an empty string
+			str := ""
+			if res := x.Get(input); len(res) > 0 {
+				if value, ok := res[0].(string); ok {
+					str = value
+				}
+			}
 
-	matchS := make([]*StoredExpressionPart, len(matched))
-	i := 0
-	for _, v := range matched {
-		matchS[i] = v
-		i++
+			m := n.inequalitySearch(ctx, path, str)
+
+			l.Lock()
+			// Only match each predicate once.  Not equals may match on any particular
+			// key.
+			for _, v := range m {
+				matched = append(matched, v)
+			}
+			l.Unlock()
+			return nil
+		})
 	}
 
-	deniedS := make([]*StoredExpressionPart, len(denied))
-	for _, v := range denied {
-		deniedS[i] = v
-		i++
-	}
-
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("matchS")
-	spew.Dump(matchS)
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("")
-	fmt.Println("")
-
-	return matchS, deniedS, err
+	return matched, denied, eg.Wait()
 }
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name
-// entirely.  It also returns any inequality matches
-func (n *stringLookup) Search(ctx context.Context, variable string, input any) (matched, denied []*StoredExpressionPart) {
-	n.lock.RLock()
-	defer n.lock.RUnlock()
+// entirely.
+//
+// Note that Search does not match inequality items.
+func (n *stringLookup) Search(ctx context.Context, variable string, input any) (matched []*StoredExpressionPart) {
 	str, ok := input.(string)
 	if !ok {
-		return nil, nil
+		return nil
 	}
 
-	hashedInput := n.hash(str)
+	return n.equalitySearch(ctx, variable, str)
+
+}
+
+func (n *stringLookup) equalitySearch(ctx context.Context, variable string, input string) (matched []*StoredExpressionPart) {
+	n.lock.RLock()
+	defer n.lock.RUnlock()
+
+	hashedInput := n.hash(input)
 
 	// Iterate through all matching values, and only take those expressions which match our
 	// current variable name.
@@ -169,30 +162,23 @@ func (n *stringLookup) Search(ctx context.Context, variable string, input any) (
 	}
 	filtered = filtered[0:i]
 
-	// With !=, we want every expression *other than* the match to be valid.
-	inequality := make(
-		[]*StoredExpressionPart,
-		// Utility to make the right sized array - the total number of
-		// stored inequality expressions minus the ignored (matching) size.
-		int(n.inequalityLen)-len(n.inequality[hashedInput]),
-	)
+	return filtered
+}
 
-	i = 0
-	for k, v := range n.inequality {
-		if k == hashedInput {
+func (n *stringLookup) inequalitySearch(ctx context.Context, variable string, input string) (matched []*StoredExpressionPart) {
+	n.lock.RLock()
+	defer n.lock.RUnlock()
+
+	hashedInput := n.hash(input)
+
+	results := []*StoredExpressionPart{}
+	for value, exprs := range n.inequality[variable] {
+		if value == hashedInput {
 			continue
 		}
-		for _, part := range v {
-			if part.Ident != nil && *part.Ident != variable {
-				// The variables don't match.
-				continue
-			}
-			inequality[i] = part
-			i++
-		}
+		results = append(results, exprs...)
 	}
-
-	return append(filtered, inequality[0:i]...), n.inequality[n.hash(str)]
+	return results
 }
 
 // hash hashes strings quickly via xxhash.  this provides a _somewhat_ collision-free
@@ -228,16 +214,22 @@ func (n *stringLookup) Add(ctx context.Context, p ExpressionPart) error {
 		defer n.lock.Unlock()
 		val := n.hash(p.Predicate.LiteralAsString())
 
-		n.vars[p.Predicate.Ident] = struct{}{}
-
 		atomic.AddInt64(&n.inequalityLen, 1)
 
-		if _, ok := n.inequality[val]; !ok {
-			n.inequality[val] = []*StoredExpressionPart{p.ToStored()}
+		// First, add the variable to inequality
+		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
+			n.inequality[p.Predicate.Ident] = variableMap{}
+		}
+
+		// then merge the expression into the value that the expression has.
+		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
+			n.inequality[p.Predicate.Ident] = variableMap{
+				val: []*StoredExpressionPart{p.ToStored()},
+			}
 			return nil
 		}
-		n.inequality[val] = append(n.inequality[val], p.ToStored())
 
+		n.inequality[p.Predicate.Ident][val] = append(n.inequality[p.Predicate.Ident][val], p.ToStored())
 		return nil
 	default:
 		return fmt.Errorf("StringHash engines only support string equality/inequality")
@@ -276,24 +268,27 @@ func (n *stringLookup) Remove(ctx context.Context, p ExpressionPart) error {
 		n.lock.Lock()
 		defer n.lock.Unlock()
 
-		val := n.hash(p.Predicate.LiteralAsString())
+		// TODO
+		// val := n.hash(p.Predicate.LiteralAsString())
+		/*
 
-		coll, ok := n.inequality[val]
-		if !ok {
-			// This could not exist as there's nothing mapping this variable for
-			// the given event name.
-			return ErrExpressionPartNotFound
-		}
-
-		// Remove the expression part from the leaf.
-		for i, eval := range coll {
-			if p.EqualsStored(eval) {
-				atomic.AddInt64(&n.inequalityLen, -1)
-				coll = append(coll[:i], coll[i+1:]...)
-				n.inequality[val] = coll
-				return nil
+			coll, ok := n.inequality[val]
+			if !ok {
+				// This could not exist as there's nothing mapping this variable for
+				// the given event name.
+				return ErrExpressionPartNotFound
 			}
-		}
+
+			// Remove the expression part from the leaf.
+			for i, eval := range coll {
+				if p.EqualsStored(eval) {
+						atomic.AddInt64(&n.inequalityLen, -1)
+						coll = append(coll[:i], coll[i+1:]...)
+						n.inequality[val] = coll
+					return nil
+				}
+			}
+		*/
 		return ErrExpressionPartNotFound
 
 	default:

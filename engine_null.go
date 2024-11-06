@@ -57,7 +57,7 @@ func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched, d
 
 			// XXX: This engine hasn't been updated with denied items for !=.  It needs consideration
 			// in how to handle these cases appropriately.
-			found, _ := n.Search(ctx, path, res[0])
+			found := n.Search(ctx, path, res[0])
 			matched = append(matched, found...)
 			l.Unlock()
 
@@ -68,16 +68,16 @@ func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched, d
 	return matched, denied, eg.Wait()
 }
 
-func (n *nullLookup) Search(ctx context.Context, variable string, input any) (matched, denied []*StoredExpressionPart) {
+func (n *nullLookup) Search(ctx context.Context, variable string, input any) (matched []*StoredExpressionPart) {
 	if input == nil {
 		// The input data is null, so the only items that can match are equality
 		// comparisons to null.
 		all := n.null[variable]
-		return all, nil
+		return all
 	}
 
 	all := n.not[variable]
-	return all, nil
+	return all
 }
 
 func (n *nullLookup) Add(ctx context.Context, p ExpressionPart) error {

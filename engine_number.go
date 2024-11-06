@@ -72,7 +72,7 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) (matched, den
 
 			// This matches null, nil (as null), and any non-null items.
 			l.Lock()
-			found, _ := n.Search(ctx, path, val)
+			found := n.Search(ctx, path, val)
 			matched = append(matched, found...)
 			l.Unlock()
 
@@ -85,7 +85,7 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) (matched, den
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name
 // entirely.
-func (n *numbers) Search(ctx context.Context, variable string, input any) (matched, denied []*StoredExpressionPart) {
+func (n *numbers) Search(ctx context.Context, variable string, input any) (matched []*StoredExpressionPart) {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
 
@@ -102,7 +102,7 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) (match
 	case float64:
 		val = v
 	default:
-		return nil, nil
+		return nil
 	}
 
 	// First, find exact matches.
@@ -151,7 +151,7 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) (match
 		return true
 	})
 
-	return matched, denied
+	return matched
 }
 
 func (n *numbers) Add(ctx context.Context, p ExpressionPart) error {

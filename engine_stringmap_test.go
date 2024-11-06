@@ -67,9 +67,8 @@ func TestEngineStringmap(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("It searches strings", func(t *testing.T) {
-		parts, denied := s.Search(ctx, "async.data.id", "123")
+		parts := s.Search(ctx, "async.data.id", "123")
 		require.Equal(t, 2, len(parts))
-		require.Equal(t, 0, len(denied))
 
 		for _, part := range parts {
 			require.EqualValues(t, part.PredicateID, a.Hash())
@@ -77,11 +76,11 @@ func TestEngineStringmap(t *testing.T) {
 		}
 
 		t.Run("It handles variable names", func(t *testing.T) {
-			parts, denied = s.Search(ctx, "this doesn't matter", "123")
+			parts = s.Search(ctx, "this doesn't matter", "123")
 			require.Equal(t, 0, len(parts))
 		})
 
-		parts, denied = s.Search(ctx, "async.data.another", "456")
+		parts = s.Search(ctx, "async.data.another", "456")
 		require.Equal(t, 1, len(parts))
 	})
 
@@ -93,25 +92,35 @@ func TestEngineStringmap(t *testing.T) {
 
 	t.Run("inequality", func(t *testing.T) {
 		t.Run("first case: neq-1", func(t *testing.T) {
-			parts, denied := s.Search(ctx, "async.data.neq", "neq-1")
+			parts, _, err := s.Match(ctx, map[string]any{
+				"async": map[string]any{
+					"data": map[string]any{"neq": "neq-1"},
+				},
+			})
+			require.NoError(t, err)
 			require.Equal(t, 1, len(parts))
-			require.Equal(t, 1, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, e.Hash())
-			require.EqualValues(t, denied[0].PredicateID, d.Hash())
 		})
 
 		t.Run("second case: neq-1", func(t *testing.T) {
-			parts, denied := s.Search(ctx, "async.data.neq", "neq-2")
+			parts, _, err := s.Match(ctx, map[string]any{
+				"async": map[string]any{
+					"data": map[string]any{"neq": "neq-2"},
+				},
+			})
+			require.NoError(t, err)
 			require.Equal(t, 1, len(parts))
-			require.Equal(t, 1, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, d.Hash())
-			require.EqualValues(t, denied[0].PredicateID, e.Hash())
 		})
 
 		t.Run("third case: both", func(t *testing.T) {
-			parts, denied := s.Search(ctx, "async.data.neq", "lol-both")
+			parts, _, err := s.Match(ctx, map[string]any{
+				"async": map[string]any{
+					"data": map[string]any{"neq": "both"},
+				},
+			})
+			require.NoError(t, err)
 			require.Equal(t, 2, len(parts))
-			require.Equal(t, 0, len(denied))
 		})
 	})
 
@@ -168,9 +177,8 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 	require.NoError(t, err)
 
 	// It only matches var B
-	parts, denied := s.Search(ctx, "async.data.var_b", "123")
+	parts := s.Search(ctx, "async.data.var_b", "123")
 	require.Equal(t, 1, len(parts))
-	require.Equal(t, 0, len(denied))
 
 }
 

@@ -141,7 +141,7 @@ func TestEvaluate_Strings(t *testing.T) {
 
 	t.Run("It matches items", func(t *testing.T) {
 		pre := time.Now()
-		evals, matched, err := e.Evaluate(ctx, map[string]any{
+		evals, executed, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
@@ -151,18 +151,18 @@ func TestEvaluate_Strings(t *testing.T) {
 		})
 		total := time.Since(pre)
 		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
-		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
+		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), executed)
 
 		require.NoError(t, err)
 		require.EqualValues(t, []Evaluable{expected}, evals)
 		// We may match more than 1 as the string matcher engine
 		// returns false positives
-		require.GreaterOrEqual(t, matched, int32(1))
+		require.Equal(t, executed, int32(1))
 	})
 
 	t.Run("It handles non-matching data", func(t *testing.T) {
 		pre := time.Now()
-		evals, matched, err := e.Evaluate(ctx, map[string]any{
+		evals, executed, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
@@ -172,11 +172,11 @@ func TestEvaluate_Strings(t *testing.T) {
 		})
 		total := time.Since(pre)
 		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
-		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
+		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), executed)
 
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 0, matched)
+		require.EqualValues(t, 0, executed)
 	})
 }
 
@@ -206,6 +206,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 				"data": map[string]any{
 					"account_id": "yes",
 					"match":      "true",
+					"neq":        "nah",
 				},
 			},
 		})
@@ -228,6 +229,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 				"data": map[string]any{
 					"account_id": "yes",
 					"match":      "no",
+					"neq":        "nah",
 				},
 			},
 		})
@@ -236,8 +238,8 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 		fmt.Printf("Matched in %v ms\n", total.Milliseconds())
 
 		require.NoError(t, err)
-		require.EqualValues(t, 0, len(evals))
-		require.EqualValues(t, 0, matched)
+		require.EqualValues(t, 1, len(evals))
+		require.EqualValues(t, 1, matched)
 	})
 }
 
@@ -1156,15 +1158,21 @@ func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (
 }
 
 func addOtherExpressions(n int, e AggregateEvaluator, loader *evalLoader) {
+
+	r := rand.New(rand.NewSource(123))
+	var l sync.Mutex
+
 	ctx := context.Background()
 	wg := sync.WaitGroup{}
 	for i := 0; i < n; i++ {
-		wg.Add(1)
 		//nolint:all
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			byt := make([]byte, 8)
-			_, err := rand.Read(byt)
+			l.Lock()
+			_, err := r.Read(byt)
+			l.Unlock()
 			if err != nil {
 				panic(err)
 			}
