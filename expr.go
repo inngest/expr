@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
-	"golang.org/x/sync/semaphore"
 )
 
 var (
@@ -92,7 +91,6 @@ func NewAggregateEvaluator(
 		eval:   eval,
 		parser: parser,
 		loader: evalLoader,
-		sem:    semaphore.NewWeighted(concurrency), // TODO: remove this
 		engines: map[EngineType]MatchingEngine{
 			EngineTypeStringHash: newStringEqualityMatcher(concurrency),
 			EngineTypeNullMatch:  newNullMatcher(concurrency),
@@ -113,8 +111,6 @@ type aggregator struct {
 
 	// engines records all engines
 	engines map[EngineType]MatchingEngine
-
-	sem *semaphore.Weighted
 
 	// lock prevents concurrent updates of data
 	lock *sync.RWMutex
@@ -186,14 +182,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			continue
 		}
 
-		if err := a.sem.Acquire(ctx, 1); err != nil {
-			a.lock.RUnlock()
-			return result, matched, err
-		}
-
 		expr := item
 		napool.Go(func() error {
-			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
 					s.Lock()
@@ -253,13 +243,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			continue
 		}
 
-		if err := a.sem.Acquire(ctx, 1); err != nil {
-			a.lock.RUnlock()
-			return result, matched, err
-		}
-
 		mpool.Go(func() error {
-			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
 					s.Lock()
