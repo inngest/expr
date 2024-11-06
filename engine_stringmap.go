@@ -63,7 +63,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 	matched := []*StoredExpressionPart{}
 	eg := errgroup.Group{}
 
-	// First, handle equality amtching.
+	// First, handle equality matching.
 	for item := range n.vars {
 		path := item
 		eg.Go(func() error {
