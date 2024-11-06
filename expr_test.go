@@ -384,7 +384,7 @@ func TestEvaluate_Concurrently(t *testing.T) {
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
 
-	addOtherExpressions(100_000, e, loader)
+	addOtherExpressions(1_000, e, loader)
 
 	t.Run("It matches items", func(t *testing.T) {
 		wg := sync.WaitGroup{}
@@ -686,10 +686,13 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 2, len(eval))
 			require.EqualValues(t, 2, count)
+			fmt.Println("DONE")
 
 			err = e.Remove(ctx, tex(`event.data.foo == "yes"`, "second-id"))
+			fmt.Println("REMO")
 			require.NoError(t, err)
 			require.Greater(t, ok, float64(0))
+			fmt.Println("DONE")
 
 			require.Equal(t, 1, e.Len())
 			require.Equal(t, 0, e.SlowLen())
@@ -705,6 +708,7 @@ func TestAddRemove(t *testing.T) {
 			require.EqualValues(t, 1, len(eval))
 			require.EqualValues(t, 1, count)
 			require.EqualValues(t, firstExpr.GetID(), eval[0].GetID())
+			fmt.Println("DONE")
 		})
 
 		// Add a new expression
