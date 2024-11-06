@@ -181,6 +181,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		if err := a.sem.Acquire(ctx, 1); err != nil {
+			a.lock.RUnlock()
 			return result, matched, err
 		}
 
@@ -230,9 +231,6 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		err = errors.Join(err, merr)
 	}
 
-	// Load all evaluable instances directly from the match
-	a.lock.RLock()
-
 	// Each match here is a potential success.  When other trees and operators which are walkable
 	// are added (eg. >= operators on strings), ensure that we find the correct number of matches
 	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
@@ -248,6 +246,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		if err := a.sem.Acquire(ctx, 1); err != nil {
+			a.lock.RUnlock()
 			return result, matched, err
 		}
 
