@@ -134,6 +134,10 @@ func TestEvaluate_Strings(t *testing.T) {
 	addOtherExpressions(n, e, loader)
 
 	require.EqualValues(t, n+1, e.Len())
+	// These should all be fast matches.
+	require.EqualValues(t, n+1, e.FastLen())
+	require.EqualValues(t, 0, e.MixedLen())
+	require.EqualValues(t, 0, e.SlowLen())
 
 	t.Run("It matches items", func(t *testing.T) {
 		pre := time.Now()
@@ -150,6 +154,67 @@ func TestEvaluate_Strings(t *testing.T) {
 		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
 
 		require.NoError(t, err)
+		require.EqualValues(t, []Evaluable{expected}, evals)
+		// We may match more than 1 as the string matcher engine
+		// returns false positives
+		require.GreaterOrEqual(t, matched, int32(1))
+	})
+
+	t.Run("It handles non-matching data", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"account_id": "yes",
+					"match":      "no",
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
+
+		require.NoError(t, err)
+		require.EqualValues(t, 0, len(evals))
+		require.EqualValues(t, 0, matched)
+	})
+}
+
+func TestEvaluate_Strings_Inequality(t *testing.T) {
+	ctx := context.Background()
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+
+	expected := tex(`event.data.account_id == "yes" && event.data.neq != "neq"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
+
+	_, err := e.Add(ctx, expected)
+	require.NoError(t, err)
+
+	n := 100_000
+
+	addOtherExpressions(n, e, loader)
+
+	require.EqualValues(t, n+1, e.Len())
+
+	t.Run("It matches items", func(t *testing.T) {
+		pre := time.Now()
+		evals, matched, err := e.Evaluate(ctx, map[string]any{
+			"event": map[string]any{
+				"data": map[string]any{
+					"account_id": "yes",
+					"match":      "true",
+				},
+			},
+		})
+		total := time.Since(pre)
+		fmt.Printf("Matched in %v ns\n", total.Nanoseconds())
+		fmt.Printf("Matched in %v ms (%d)\n", total.Milliseconds(), matched)
+
+		require.NoError(t, err)
+		require.EqualValues(t, 1, len(evals))
 		require.EqualValues(t, []Evaluable{expected}, evals)
 		// We may match more than 1 as the string matcher engine
 		// returns false positives
@@ -1105,7 +1170,7 @@ func addOtherExpressions(n int, e AggregateEvaluator, loader *evalLoader) {
 			}
 			str := hex.EncodeToString(byt)
 
-			expr := tex(fmt.Sprintf(`event.data.account_id == "%s"`, str))
+			expr := tex(fmt.Sprintf(`event.data.account_id == "%s" && event.data.neq != "neq"`, str))
 			loader.AddEval(expr)
 			_, err = e.Add(ctx, expr)
 			if err != nil {

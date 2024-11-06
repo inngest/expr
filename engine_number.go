@@ -39,9 +39,9 @@ func (n numbers) Type() EngineType {
 	return EngineTypeBTree
 }
 
-func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExpressionPart, error) {
+func (n *numbers) Match(ctx context.Context, input map[string]any) (matched, denied []*StoredExpressionPart, err error) {
 	l := &sync.Mutex{}
-	found := []*StoredExpressionPart{}
+	matched = []*StoredExpressionPart{}
 	eg := errgroup.Group{}
 
 	for item := range n.paths {
@@ -72,28 +72,27 @@ func (n *numbers) Match(ctx context.Context, input map[string]any) ([]*StoredExp
 
 			// This matches null, nil (as null), and any non-null items.
 			l.Lock()
-			found = append(found, n.Search(ctx, path, val)...)
+			found, _ := n.Search(ctx, path, val)
+			matched = append(matched, found...)
 			l.Unlock()
 
 			return nil
 		})
 	}
 
-	err := eg.Wait()
-
-	return found, err
+	return matched, denied, eg.Wait()
 }
 
 // Search returns all ExpressionParts which match the given input, ignoring the variable name
 // entirely.
-func (n *numbers) Search(ctx context.Context, variable string, input any) []*StoredExpressionPart {
+func (n *numbers) Search(ctx context.Context, variable string, input any) (matched, denied []*StoredExpressionPart) {
 	n.lock.RLock()
 	defer n.lock.RUnlock()
 
-	var (
-		val   float64
-		found = []*StoredExpressionPart{}
-	)
+	// initialize matched
+	matched = []*StoredExpressionPart{}
+
+	var val float64
 
 	switch v := input.(type) {
 	case int:
@@ -103,7 +102,7 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) []*Sto
 	case float64:
 		val = v
 	default:
-		return nil
+		return nil, nil
 	}
 
 	// First, find exact matches.
@@ -114,7 +113,7 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) []*Sto
 				continue
 			}
 			// This is a candidatre.
-			found = append(found, m)
+			matched = append(matched, m)
 		}
 	}
 
@@ -130,7 +129,7 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) []*Sto
 				continue
 			}
 			// This is a candidatre.
-			found = append(found, m)
+			matched = append(matched, m)
 		}
 		return true
 	})
@@ -147,12 +146,12 @@ func (n *numbers) Search(ctx context.Context, variable string, input any) []*Sto
 				continue
 			}
 			// This is a candidatre.
-			found = append(found, m)
+			matched = append(matched, m)
 		}
 		return true
 	})
 
-	return found
+	return matched, denied
 }
 
 func (n *numbers) Add(ctx context.Context, p ExpressionPart) error {

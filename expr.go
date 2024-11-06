@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
@@ -334,7 +335,8 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 	found := map[groupID][]*StoredExpressionPart{}
 
 	for _, engine := range a.engines {
-		matched, err := engine.Match(ctx, data)
+		// we explicitly ignore the deny path for now.
+		matched, _, err := engine.Match(ctx, data)
 		if err != nil {
 			return nil, err
 		}
@@ -342,7 +344,6 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 		// Add all found items from the engine to the above list.
 		for _, eval := range matched {
 			counts[eval.GroupID] += 1
-
 			if _, ok := found[eval.GroupID]; !ok {
 				found[eval.GroupID] = []*StoredExpressionPart{}
 			}
@@ -359,6 +360,11 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 			result = append(result, found[groupID]...)
 			continue
 		}
+
+		fmt.Println("nah", requiredSize, matchingCount)
+
+		spew.Dump(found[groupID][0].Parsed.Root.Ands[0].GroupID)
+		spew.Dump(found[groupID][0].Parsed.Root.Ands[1].GroupID)
 
 		// If this is a partial eval, always add it if there's a match for now.
 
@@ -380,6 +386,8 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 
 		}
 	}
+
+	// spew.Dump(result, data)
 
 	return result, nil
 }
@@ -636,8 +644,8 @@ func engineType(p Predicate) EngineType {
 		// return EngineTypeNone
 		return EngineTypeBTree
 	case string:
-		if p.Operator == operators.Equals {
-			// StringHash is only used for matching on equality.
+		if p.Operator == operators.Equals || p.Operator == operators.NotEquals {
+			// StringHash is only used for matching on in/equality.
 			return EngineTypeStringHash
 		}
 	case nil:

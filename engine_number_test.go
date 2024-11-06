@@ -71,15 +71,17 @@ func TestEngineNumber(t *testing.T) {
 	t.Run("It searches >=", func(t *testing.T) {
 		t.Run("with ints", func(t *testing.T) {
 			// Expect only the >= id match.
-			parts := n.Search(ctx, "async.data.id", 999)
+			parts, denied := n.Search(ctx, "async.data.id", 999)
 			require.Equal(t, 1, len(parts))
+			require.Equal(t, 0, len(denied))
 			for _, part := range parts {
 				require.EqualValues(t, part.PredicateID, c.Hash())
 			}
 		})
 		t.Run("with float64", func(t *testing.T) {
 			// Expect only the >= id match.
-			parts := n.Search(ctx, "async.data.id", float64(999))
+			parts, denied := n.Search(ctx, "async.data.id", float64(999))
+			require.Equal(t, 0, len(denied))
 			require.Equal(t, 1, len(parts))
 			for _, part := range parts {
 				require.EqualValues(t, part.PredicateID, c.Hash())
@@ -90,54 +92,62 @@ func TestEngineNumber(t *testing.T) {
 	t.Run("It matches == && >=", func(t *testing.T) {
 		t.Run("with ints", func(t *testing.T) {
 			// Expect only the >= id match.
-			parts := n.Search(ctx, "async.data.id", 123)
+			parts, denied := n.Search(ctx, "async.data.id", 123)
 			require.Equal(t, 2, len(parts))
+			require.Equal(t, 0, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, a.Hash())
 			require.EqualValues(t, parts[1].PredicateID, c.Hash())
 		})
 
 		t.Run("with float64", func(t *testing.T) {
 			// Expect only the >= id match.
-			parts := n.Search(ctx, "async.data.id", float64(123))
+			parts, denied := n.Search(ctx, "async.data.id", float64(123))
 			require.Equal(t, 2, len(parts))
+			require.Equal(t, 0, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, a.Hash())
 			require.EqualValues(t, parts[1].PredicateID, c.Hash())
 		})
 
 		t.Run("with a low number", func(t *testing.T) {
 			// Expect only the >= id match.
-			parts := n.Search(ctx, "async.data.id", float64(1.00001))
+			parts, denied := n.Search(ctx, "async.data.id", float64(1.00001))
 			require.Equal(t, 0, len(parts), "returned parts: %#v")
+			require.Equal(t, 0, len(denied))
 
-			parts = n.Search(ctx, "async.data.id", float64(24.999))
+			parts, denied = n.Search(ctx, "async.data.id", float64(24.999))
 			require.Equal(t, 0, len(parts), "returned parts: %#v")
+			require.Equal(t, 0, len(denied))
 
-			parts = n.Search(ctx, "async.data.id", float64(25.0001))
+			parts, denied = n.Search(ctx, "async.data.id", float64(25.0001))
 			require.Equal(t, 1, len(parts), "returned parts: %#v")
+			require.Equal(t, 0, len(denied))
 		})
 
 		t.Run("matches pi", func(t *testing.T) {
-			parts := n.Search(ctx, "async.data.pi", 1.131)
+			parts, denied := n.Search(ctx, "async.data.pi", 1.131)
 			require.Equal(t, 1, len(parts))
+			require.Equal(t, 0, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, b.Hash())
 		})
 
 		t.Run("gt", func(t *testing.T) {
-			parts := n.Search(ctx, "async.data.id", 999999)
+			parts, denied := n.Search(ctx, "async.data.id", 999999)
 			require.Equal(t, 2, len(parts))
+			require.Equal(t, 0, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, c.Hash())
 			require.EqualValues(t, parts[1].PredicateID, d.Hash())
 		})
 
 		t.Run("lt", func(t *testing.T) {
-			parts := n.Search(ctx, "async.data.id", -999999)
+			parts, denied := n.Search(ctx, "async.data.id", -999999)
 			require.Equal(t, 1, len(parts))
+			require.Equal(t, 0, len(denied))
 			require.EqualValues(t, parts[0].PredicateID, e.Hash())
 		})
 	})
 
 	t.Run("It matches data", func(t *testing.T) {
-		found, err := n.Match(ctx, map[string]any{
+		found, denied, err := n.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id": 123,
@@ -146,6 +156,7 @@ func TestEngineNumber(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, 2, len(found))
+		require.Equal(t, 0, len(denied))
 		require.EqualValues(t, found[0].PredicateID, a.Hash())
 		require.EqualValues(t, found[1].PredicateID, c.Hash())
 	})
