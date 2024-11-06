@@ -10,7 +10,7 @@ import (
 
 func TestEngineStringmap(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher().(*stringLookup)
+	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 
 	a := ExpressionPart{
 		Predicate: &Predicate{
@@ -154,7 +154,7 @@ func TestEngineStringmap(t *testing.T) {
 
 func TestEngineStringmap_DuplicateValues(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher().(*stringLookup)
+	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 	a := ExpressionPart{
 		Predicate: &Predicate{
 			Ident:    "async.data.var_a",
@@ -182,7 +182,7 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 
 func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher().(*stringLookup)
+	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 	a := ExpressionPart{
 		Predicate: &Predicate{
 			Ident:    "async.data.var_a",
