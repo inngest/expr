@@ -19,6 +19,10 @@ var (
 	ErrExpressionPartNotFound = fmt.Errorf("expression part not found")
 )
 
+const (
+	defaultConcurrency = 5_000
+)
+
 // errEngineUnimplemented is used while we develop the aggregate tree library when trees
 // are not yet implemented.
 var errEngineUnimplemented = fmt.Errorf("tree type unimplemented")
@@ -82,7 +86,7 @@ func NewAggregateEvaluator(
 	concurrency int64,
 ) AggregateEvaluator {
 	if concurrency <= 0 {
-		concurrency = 1
+		concurrency = defaultConcurrency
 	}
 
 	return &aggregator{

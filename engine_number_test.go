@@ -8,9 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testConcurrency = 1
+
 func TestEngineNumber(t *testing.T) {
 	ctx := context.Background()
-	n := newNumberMatcher().(*numbers)
+	n := newNumberMatcher(testConcurrency).(*numbers)
 
 	// int64
 	a := ExpressionPart{
