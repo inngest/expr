@@ -85,8 +85,6 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 			m := n.equalitySearch(ctx, path, str)
 
 			l.Lock()
-			// Only match each predicate once.  Not equals may match on any particular
-			// key.
 			matched = append(matched, m...)
 			l.Unlock()
 			return nil
@@ -113,8 +111,6 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 			m := n.inequalitySearch(ctx, path, str)
 
 			l.Lock()
-			// Only match each predicate once.  Not equals may match on any particular
-			// key.
 			matched = append(matched, m...)
 			l.Unlock()
 			return nil
