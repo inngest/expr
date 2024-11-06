@@ -103,7 +103,6 @@ func (p ExpressionPart) ToStored() *StoredExpressionPart {
 	return &StoredExpressionPart{
 		GroupID:     p.GroupID,
 		Parsed:      p.Parsed,
-		Predicate:   p.Predicate,
 		PredicateID: p.Hash(),
 		Ident:       &p.Predicate.Ident,
 	}
@@ -114,7 +113,6 @@ func (p ExpressionPart) ToStored() *StoredExpressionPart {
 type StoredExpressionPart struct {
 	GroupID     groupID
 	PredicateID uint64
-	Predicate   *Predicate
 	Parsed      *ParsedExpression
 	Ident       *string
 }
