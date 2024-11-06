@@ -206,11 +206,6 @@ func (n *stringLookup) Add(ctx context.Context, p ExpressionPart) error {
 
 		// First, add the variable to inequality
 		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
-			n.inequality[p.Predicate.Ident] = variableMap{}
-		}
-
-		// then merge the expression into the value that the expression has.
-		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
 			n.inequality[p.Predicate.Ident] = variableMap{
 				val: []*StoredExpressionPart{p.ToStored()},
 			}
@@ -256,27 +251,25 @@ func (n *stringLookup) Remove(ctx context.Context, p ExpressionPart) error {
 		n.lock.Lock()
 		defer n.lock.Unlock()
 
-		// TODO
-		// val := n.hash(p.Predicate.LiteralAsString())
-		/*
+		val := n.hash(p.Predicate.LiteralAsString())
 
-			coll, ok := n.inequality[val]
-			if !ok {
-				// This could not exist as there's nothing mapping this variable for
-				// the given event name.
-				return ErrExpressionPartNotFound
-			}
+		// If the var isn't found, we can't remove.
+		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
+			return ErrExpressionPartNotFound
+		}
 
-			// Remove the expression part from the leaf.
-			for i, eval := range coll {
-				if p.EqualsStored(eval) {
-						atomic.AddInt64(&n.inequalityLen, -1)
-						coll = append(coll[:i], coll[i+1:]...)
-						n.inequality[val] = coll
-					return nil
-				}
+		// then merge the expression into the value that the expression has.
+		if _, ok := n.inequality[p.Predicate.Ident][val]; !ok {
+			return nil
+		}
+
+		for i, eval := range n.inequality[p.Predicate.Ident][val] {
+			if p.EqualsStored(eval) {
+				n.inequality[p.Predicate.Ident][val] = append(n.inequality[p.Predicate.Ident][val][:i], n.inequality[p.Predicate.Ident][val][i+1:]...)
+				return nil
 			}
-		*/
+		}
+
 		return ErrExpressionPartNotFound
 
 	default:
