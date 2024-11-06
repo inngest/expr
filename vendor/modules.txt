@@ -35,6 +35,8 @@ github.com/google/uuid
 # github.com/karlseguin/ccache/v2 v2.0.8
 ## explicit; go 1.13
 github.com/karlseguin/ccache/v2
+# github.com/kr/text v0.2.0
+## explicit
 # github.com/ohler55/ojg v1.21.0
 ## explicit; go 1.21
 github.com/ohler55/ojg
@@ -44,6 +46,12 @@ github.com/ohler55/ojg/jp
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
+# github.com/sourcegraph/conc v0.3.0
+## explicit; go 1.19
+github.com/sourcegraph/conc
+github.com/sourcegraph/conc/internal/multierror
+github.com/sourcegraph/conc/panics
+github.com/sourcegraph/conc/pool
 # github.com/stoewer/go-strcase v1.2.0
 ## explicit; go 1.11
 github.com/stoewer/go-strcase
@@ -54,6 +62,12 @@ github.com/stretchr/testify/require
 # github.com/tidwall/btree v1.7.0
 ## explicit; go 1.19
 github.com/tidwall/btree
+# go.uber.org/atomic v1.7.0
+## explicit; go 1.13
+go.uber.org/atomic
+# go.uber.org/multierr v1.9.0
+## explicit; go 1.19
+go.uber.org/multierr
 # golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc
 ## explicit; go 1.20
 golang.org/x/exp/constraints
