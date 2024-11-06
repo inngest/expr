@@ -6,16 +6,15 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/ohler55/ojg/jp"
-	"github.com/sourcegraph/conc/pool"
 )
 
 func newNullMatcher(concurrency int64) MatchingEngine {
 	return &nullLookup{
-		lock:    &sync.RWMutex{},
-		paths:   map[string]struct{}{},
-		null:    map[string][]*StoredExpressionPart{},
-		not:     map[string][]*StoredExpressionPart{},
-		workers: pool.New().WithErrors().WithMaxGoroutines(int(concurrency)),
+		lock:        &sync.RWMutex{},
+		paths:       map[string]struct{}{},
+		null:        map[string][]*StoredExpressionPart{},
+		not:         map[string][]*StoredExpressionPart{},
+		concurrency: concurrency,
 	}
 }
 
@@ -28,7 +27,7 @@ type nullLookup struct {
 	null map[string][]*StoredExpressionPart
 	not  map[string][]*StoredExpressionPart
 
-	workers *pool.ErrorPool
+	concurrency int64
 }
 
 func (n *nullLookup) Type() EngineType {
@@ -39,9 +38,11 @@ func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched []
 	l := &sync.Mutex{}
 	matched = []*StoredExpressionPart{}
 
+	pool := newErrPool(errPoolOpts{concurrency: n.concurrency})
+
 	for item := range n.paths {
 		path := item
-		n.workers.Go(func() error {
+		pool.Go(func() error {
 			x, err := jp.ParseString(path)
 			if err != nil {
 				return err
@@ -67,7 +68,7 @@ func (n *nullLookup) Match(ctx context.Context, data map[string]any) (matched []
 		})
 	}
 
-	return matched, n.workers.Wait()
+	return matched, pool.Wait()
 }
 
 func (n *nullLookup) Search(ctx context.Context, variable string, input any) (matched []*StoredExpressionPart) {

@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
-	"github.com/sourcegraph/conc/pool"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -99,11 +98,11 @@ func NewAggregateEvaluator(
 			EngineTypeNullMatch:  newNullMatcher(concurrency),
 			EngineTypeBTree:      newNumberMatcher(concurrency),
 		},
-		lock:      &sync.RWMutex{},
-		evals:     map[uuid.UUID]Evaluable{},
-		constants: map[uuid.UUID]struct{}{},
-		mixed:     map[uuid.UUID]struct{}{},
-		workers:   pool.New().WithErrors().WithMaxGoroutines(int(concurrency)),
+		lock:        &sync.RWMutex{},
+		evals:       map[uuid.UUID]Evaluable{},
+		constants:   map[uuid.UUID]struct{}{},
+		mixed:       map[uuid.UUID]struct{}{},
+		concurrency: concurrency,
 	}
 }
 
@@ -137,8 +136,7 @@ type aggregator struct {
 	// the expression containing non-aggregateable clauses.
 	constants map[uuid.UUID]struct{}
 
-	// workers creates a pool of goroutines for running aggregation tasks
-	workers *pool.ErrorPool
+	concurrency int64
 }
 
 // Len returns the total number of aggregateable and constantly matched expressions
@@ -179,6 +177,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		s       sync.Mutex
 	)
 
+	napool := newErrPool(errPoolOpts{concurrency: a.concurrency})
+
 	a.lock.RLock()
 	for uuid := range a.constants {
 		item, ok := a.evals[uuid]
@@ -192,7 +192,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 		}
 
 		expr := item
-		a.workers.Go(func() error {
+		napool.Go(func() error {
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
@@ -228,7 +228,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	}
 	a.lock.RUnlock()
 
-	if werr := a.workers.Wait(); werr != nil {
+	if werr := napool.Wait(); werr != nil {
 		err = errors.Join(err, werr)
 	}
 
@@ -244,6 +244,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	seenMu := &sync.Mutex{}
 	seen := map[uuid.UUID]struct{}{}
 
+	mpool := newErrPool(errPoolOpts{concurrency: a.concurrency})
+
 	a.lock.RLock()
 	for _, expr := range matches {
 		eval, ok := a.evals[expr.Parsed.EvaluableID]
@@ -256,7 +258,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 			return result, matched, err
 		}
 
-		a.workers.Go(func() error {
+		mpool.Go(func() error {
 			defer a.sem.Release(1)
 			defer func() {
 				if r := recover(); r != nil {
@@ -295,7 +297,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 	}
 	a.lock.RUnlock()
 
-	if werr := a.workers.Wait(); werr != nil {
+	if werr := mpool.Wait(); werr != nil {
 		err = errors.Join(err, werr)
 	}
 
