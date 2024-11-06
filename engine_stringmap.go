@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"sync/atomic"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/google/cel-go/common/operators"
@@ -51,8 +50,7 @@ type stringLookup struct {
 	// which is then mapped to expression parts.
 	//
 	// this lets us quickly map neq in a fast manner
-	inequality    inequalityMap
-	inequalityLen int64
+	inequality inequalityMap
 }
 
 func (s stringLookup) Type() EngineType {
@@ -205,8 +203,6 @@ func (n *stringLookup) Add(ctx context.Context, p ExpressionPart) error {
 		n.lock.Lock()
 		defer n.lock.Unlock()
 		val := n.hash(p.Predicate.LiteralAsString())
-
-		atomic.AddInt64(&n.inequalityLen, 1)
 
 		// First, add the variable to inequality
 		if _, ok := n.inequality[p.Predicate.Ident]; !ok {
