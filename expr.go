@@ -577,16 +577,8 @@ func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedEx
 
 	// XXX: Here we must add the OR groups to make group IDs a success.
 	if len(node.Ors) > 0 {
-		for _, n := range node.Ors {
-			if !n.HasPredicate() || len(n.Ors) > 0 {
-				// Don't handle sub-branching for now.
-				// TODO: Recursively iterate.
-				stats.AddSlow()
-				continue
-			}
-
-			all = append(all, n)
-		}
+		// Mark this as a mixed/slow expression to be fully tested.
+		stats.AddSlow()
 	}
 
 	if node.Predicate != nil {
