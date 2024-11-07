@@ -1203,6 +1203,7 @@ func getMem() runtime.MemStats {
 	return m
 }
 
+//nolint:all
 func deltaMem(prev runtime.MemStats) runtime.MemStats {
 	next := getMem()
 
