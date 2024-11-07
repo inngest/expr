@@ -199,8 +199,8 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 	addOtherExpressions(n, e, loader)
 	require.EqualValues(t, n+1, e.Len())
 
-	//mem := getMem()
-	//printMem(mem, "no matches")
+	mem := getMem()
+	printMem(mem, "no matches")
 
 	t.Run("It matches items", func(t *testing.T) {
 		pre := time.Now()

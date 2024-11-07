@@ -96,12 +96,11 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any) ([]*Stor
 			return nil
 		})
 	}
-
-	// Wait for equality matching to optimize inequality matching
-	if err := eg.Wait(); err != nil {
+	if err := pool.Wait(); err != nil {
 		return nil, err
 	}
 
+	pool = newErrPool(errPoolOpts{concurrency: n.concurrency})
 	// Then, iterate through the inequality matches.
 	for item := range n.inequality {
 		path := item
