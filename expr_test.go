@@ -260,7 +260,7 @@ func TestEvaluate_Numbers(t *testing.T) {
 
 	t.Run("With annoying floats", func(t *testing.T) {
 		// This is the expected epression
-		expected := tex(`4.797009e+06 == event.data.id && (event.data.ts == null || event.data.ts > 1715211850340)`)
+		expected := tex(`4.797009e+06 == event.data.id && event.data.ts > 1715211850340`)
 		// expected := tex(`event.data.id == 25`)
 		loader := newEvalLoader()
 		loader.AddEval(expected)
@@ -322,7 +322,7 @@ func TestEvaluate_Numbers(t *testing.T) {
 	t.Run("With floats", func(t *testing.T) {
 
 		// This is the expected epression
-		expected := tex(`326909.0 == event.data.account_id && (event.data.ts == null || event.data.ts > 1714000000000)`)
+		expected := tex(`326909.0 == event.data.account_id && event.data.ts > 1714000000000`)
 		// expected := tex(`event.data.id == 25`)
 		loader := newEvalLoader()
 		loader.AddEval(expected)
@@ -596,6 +596,123 @@ func TestAggregateMatch(t *testing.T) {
 		matched, err := e.AggregateMatch(ctx, input)
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(matched))
+	})
+}
+
+func TestOrs(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	t.Run("simple ors", func(t *testing.T) {
+		loader := newEvalLoader()
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
+		eval := tex(`event.a == "a" || event.b == "b"`)
+		loader.AddEval(eval)
+		ok, err := e.Add(ctx, eval)
+		require.NoError(t, err)
+		require.Equal(t, float64(1), ok)
+
+		t.Run("it matches left", func(t *testing.T) {
+
+			input := map[string]any{
+				"event": map[string]any{
+					"a": "a",
+				},
+			}
+			evals, matched, err := e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(evals))
+			require.EqualValues(t, 1, matched)
+		})
+
+		t.Run("it matches right", func(t *testing.T) {
+
+			input := map[string]any{
+				"event": map[string]any{
+					"b": "b",
+				},
+			}
+			evals, matched, err := e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(evals))
+			require.EqualValues(t, 1, matched)
+		})
+	})
+
+	t.Run("branched ors", func(t *testing.T) {
+		loader := newEvalLoader()
+		e := NewAggregateEvaluator(parser, testBoolEvaluator, loader.Load, 0)
+		eval := tex(`event.a == "a" && (event.b == "b" || event.c == "c")`)
+		loader.AddEval(eval)
+		ok, err := e.Add(ctx, eval)
+		require.NoError(t, err)
+		require.Equal(t, float64(0.5), ok)
+
+		t.Run("it matches and + left", func(t *testing.T) {
+
+			input := map[string]any{
+				"event": map[string]any{
+					"a": "a",
+					"b": "b",
+				},
+			}
+			evals, matched, err := e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(evals))
+			require.EqualValues(t, 1, matched)
+		})
+
+		t.Run("it matches and + right", func(t *testing.T) {
+			input := map[string]any{
+				"event": map[string]any{
+					"a": "a",
+					"c": "c",
+				},
+			}
+			evals, matched, err := e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, len(evals))
+			require.EqualValues(t, 1, matched)
+		})
+
+		t.Run("it matches neither", func(t *testing.T) {
+			input := map[string]any{
+				"event": map[string]any{
+					"a": "a",
+					"b": "",
+					"c": "",
+				},
+			}
+			evals, matched, err := e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(evals))
+			require.EqualValues(t, 1, matched)
+
+			input = map[string]any{
+				"event": map[string]any{
+					"a": "",
+					"b": "b",
+					"c": "",
+				},
+			}
+			evals, matched, err = e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(evals))
+			require.EqualValues(t, 0, matched)
+
+			input = map[string]any{
+				"event": map[string]any{
+					"a": "",
+					"b": "",
+					"c": "c",
+				},
+			}
+			evals, matched, err = e.Evaluate(ctx, input)
+			require.NoError(t, err)
+			require.EqualValues(t, 0, len(evals))
+			require.EqualValues(t, 0, matched)
+		})
 	})
 }
 
@@ -1021,17 +1138,17 @@ func TestMixedEngines(t *testing.T) {
 	t.Run("Assert mixed engines", func(t *testing.T) {
 		exprs := []string{
 			// each id has 1, 2, 3 as a TS
-			`event.data.id == "a" && (event.ts == null || event.ts > 1)`,
-			`event.data.id == "a" && (event.ts == null || event.ts > 2)`,
-			`event.data.id == "a" && (event.ts == null || event.ts > 3)`,
+			`event.data.id == "a" && event.ts > 1`,
+			`event.data.id == "a" && event.ts > 2`,
+			`event.data.id == "a" && event.ts > 3`,
 
-			`event.data.id == "b" && (event.ts == null || event.ts > 1)`,
-			`event.data.id == "b" && (event.ts == null || event.ts > 2)`,
-			`event.data.id == "b" && (event.ts == null || event.ts > 3)`,
+			`event.data.id == "b" && event.ts > 1`,
+			`event.data.id == "b" && event.ts > 2`,
+			`event.data.id == "b" && event.ts > 3`,
 
-			`event.data.id == "c" && (event.ts == null || event.ts > 1)`,
-			`event.data.id == "c" && (event.ts == null || event.ts > 2)`,
-			`event.data.id == "c" && (event.ts == null || event.ts > 3)`,
+			`event.data.id == "c" && event.ts > 1`,
+			`event.data.id == "c" && event.ts > 2`,
+			`event.data.id == "c" && event.ts > 3`,
 		}
 
 		for n, expr := range exprs {
@@ -1068,7 +1185,7 @@ func TestMixedEngines(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, len(eval))
 			require.EqualValues(t, 1, count)
-			require.Equal(t, `event.data.id == "a" && (event.ts == null || event.ts > 1)`, eval[0].GetExpression())
+			require.Equal(t, `event.data.id == "a" && event.ts > 1`, eval[0].GetExpression())
 
 			// Should match the first and second "a" expr.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -1082,19 +1199,6 @@ func TestMixedEngines(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 2, len(eval))
 			require.EqualValues(t, 2, count)
-
-			// Null matches
-			eval, count, err = e.Evaluate(ctx, map[string]any{
-				"event": map[string]any{
-					"data": map[string]any{
-						"id": "a",
-					},
-					"ts": nil,
-				},
-			})
-			require.NoError(t, err)
-			require.EqualValues(t, 3, len(eval))
-			require.EqualValues(t, 3, count)
 		})
 	})
 
