@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -120,7 +121,7 @@ func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 
-	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	expected := tex(`event.data.account_id == "yes" && event.data.another == "ok" && event.data.match == "true"`)
 	loader := newEvalLoader()
 	loader.AddEval(expected)
 
@@ -145,6 +146,7 @@ func TestEvaluate_Strings(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "true",
 				},
 			},
@@ -166,6 +168,7 @@ func TestEvaluate_Strings(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "no",
 				},
 			},
@@ -181,10 +184,11 @@ func TestEvaluate_Strings(t *testing.T) {
 }
 
 func TestEvaluate_Strings_Inequality(t *testing.T) {
+
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 
-	expected := tex(`event.data.account_id == "yes" && event.data.neq != "neq"`)
+	expected := tex(`event.data.account_id == "yes" && event.data.another == "ok" && event.data.neq != "neq"`)
 	loader := newEvalLoader()
 	loader.AddEval(expected)
 
@@ -194,10 +198,11 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 	require.NoError(t, err)
 
 	n := 100_000
-
 	addOtherExpressions(n, e, loader)
-
 	require.EqualValues(t, n+1, e.Len())
+
+	mem := getMem()
+	printMem(mem, "no matches")
 
 	t.Run("It matches items", func(t *testing.T) {
 		pre := time.Now()
@@ -205,6 +210,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "true",
 					"neq":        "nah",
 				},
@@ -222,12 +228,15 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 		require.GreaterOrEqual(t, matched, int32(1))
 	})
 
+	printMem(getMem(), "first match")
+
 	t.Run("It handles non-matching data", func(t *testing.T) {
 		pre := time.Now()
 		evals, matched, err := e.Evaluate(ctx, map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "no",
 					"neq":        "nah",
 				},
@@ -241,6 +250,8 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 		require.EqualValues(t, 1, len(evals))
 		require.EqualValues(t, 1, matched)
 	})
+
+	printMem(getMem(), "second match")
 }
 
 func TestEvaluate_Numbers(t *testing.T) {
@@ -1188,4 +1199,34 @@ func addOtherExpressions(n int, e AggregateEvaluator, loader *evalLoader) {
 		}()
 	}
 	wg.Wait()
+}
+
+func getMem() runtime.MemStats {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return m
+}
+
+//nolint:all
+func deltaMem(prev runtime.MemStats) runtime.MemStats {
+	next := getMem()
+
+	return runtime.MemStats{
+		HeapAlloc:  next.HeapAlloc - prev.HeapAlloc,
+		Alloc:      next.Alloc - prev.Alloc,
+		TotalAlloc: next.TotalAlloc - prev.TotalAlloc,
+	}
+}
+
+func printMem(m runtime.MemStats, label ...string) {
+	if len(label) > 0 {
+		fmt.Printf("\t%s\n", label[0])
+	}
+
+	fmt.Printf("\tAlloc: %d MiB\n", bToMb(m.Alloc))
+	fmt.Printf("\tTotalAlloc: %d MiB\n", bToMb(m.TotalAlloc))
+}
+
+func bToMb(b uint64) uint64 {
+	return b / 1024 / 1024
 }
