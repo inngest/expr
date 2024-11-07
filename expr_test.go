@@ -121,7 +121,7 @@ func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 
-	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	expected := tex(`event.data.account_id == "yes" && event.data.another == "ok" && event.data.match == "true"`)
 	loader := newEvalLoader()
 	loader.AddEval(expected)
 
@@ -146,6 +146,7 @@ func TestEvaluate_Strings(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "true",
 				},
 			},
@@ -167,6 +168,7 @@ func TestEvaluate_Strings(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "no",
 				},
 			},
@@ -186,7 +188,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
 
-	expected := tex(`event.data.account_id == "yes" && event.data.neq != "neq"`)
+	expected := tex(`event.data.account_id == "yes" && event.data.another == "ok" && event.data.neq != "neq"`)
 	loader := newEvalLoader()
 	loader.AddEval(expected)
 
@@ -208,6 +210,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "true",
 					"neq":        "nah",
 				},
@@ -233,6 +236,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 			"event": map[string]any{
 				"data": map[string]any{
 					"account_id": "yes",
+					"another":    "ok",
 					"match":      "no",
 					"neq":        "nah",
 				},

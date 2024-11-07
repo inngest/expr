@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/cel-go/common/operators"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -12,7 +13,14 @@ func TestEngineStringmap(t *testing.T) {
 	ctx := context.Background()
 	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 
+	gid := newGroupID(4, 2) // optimized to 2 == matches.
+	exp := &ParsedExpression{
+		EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-neq")),
+	}
+
 	a := ExpressionPart{
+		Parsed:  exp,
+		GroupID: gid,
 		Predicate: &Predicate{
 			Ident:    "async.data.id",
 			Literal:  "123",
@@ -20,6 +28,8 @@ func TestEngineStringmap(t *testing.T) {
 		},
 	}
 	b := ExpressionPart{
+		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-single"))},
+		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
 		Predicate: &Predicate{
 			Ident:    "async.data.id",
 			Literal:  "123",
@@ -27,6 +37,8 @@ func TestEngineStringmap(t *testing.T) {
 		},
 	}
 	c := ExpressionPart{
+		Parsed:  exp,
+		GroupID: gid,
 		Predicate: &Predicate{
 			Ident:    "async.data.another",
 			Literal:  "456",
@@ -36,6 +48,8 @@ func TestEngineStringmap(t *testing.T) {
 
 	// Test inequality
 	d := ExpressionPart{
+		Parsed:  exp,
+		GroupID: gid,
 		Predicate: &Predicate{
 			Ident:    "async.data.neq",
 			Literal:  "neq-1",
@@ -43,6 +57,8 @@ func TestEngineStringmap(t *testing.T) {
 		},
 	}
 	e := ExpressionPart{
+		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("neq-single"))},
+		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
 		Predicate: &Predicate{
 			Ident:    "async.data.neq",
 			Literal:  "neq-2",
@@ -134,7 +150,11 @@ func TestEngineStringmap(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.Equal(t, 4, len(found)) // matching plus inequality
+
+		// This should match "neq-single" and eq-single only.  It shouldn't
+		// match the eq-neq expression, as the "async.data.nother" part wasn't matched
+		// and there's expression optimization to test this.
+		require.Equal(t, 2, len(found))
 	})
 
 	t.Run("It matches data with null neq", func(t *testing.T) {
@@ -147,9 +167,23 @@ func TestEngineStringmap(t *testing.T) {
 			},
 		})
 		require.NoError(t, err)
-		require.Equal(t, 4, len(found)) // matching plus inequality
+		require.Equal(t, 2, len(found)) // matching plus inequality
 	})
 
+	t.Run("It matches data with expression optimizations in group ID", func(t *testing.T) {
+		found, err := s.Match(ctx, map[string]any{
+			"async": map[string]any{
+				"data": map[string]any{
+					"id":      "123",
+					"another": "456",
+					"neq":     "lol",
+				},
+			},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, 4, len(found))
+	})
 }
 
 func TestEngineStringmap_DuplicateValues(t *testing.T) {
