@@ -50,16 +50,18 @@ func TestLiftLiterals(t *testing.T) {
 				"b": "test/foobar",
 			},
 		},
-		// {
-		// 	name:        "more complex",
-		// 	expr:        `/`,
-		// 	expectedStr: "/",
-		// },
-		// {
-		// 	name:        "ignore comments",
-		// 	expr:        `// foo`,
-		// 	expectedStr: "",
-		// },
+		{
+			name:         "more complex",
+			expr:         `/`,
+			expectedStr:  "",
+			expectedArgs: map[string]any{},
+		},
+		{
+			name:         "ignore comments",
+			expr:         `// foo`,
+			expectedStr:  "",
+			expectedArgs: map[string]any{},
+		},
 	}
 
 	for _, test := range tests {
