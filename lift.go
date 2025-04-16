@@ -70,12 +70,27 @@ func (l *liftParser) lift() (string, LiftedArgs) {
 
 	l.rewritten = &strings.Builder{}
 
+	comment := false
+
 	for l.idx < len(l.expr) {
 		char := l.expr[l.idx]
 
 		l.idx++
 
+		if comment && char == '\n' {
+			comment = false
+		}
+		if comment && char != '\n' {
+			continue
+		}
+
 		switch char {
+		case '/':
+			// if the next item is a comment, ignore the line.
+			if len(l.expr) > l.idx && l.expr[l.idx] == '/' {
+				comment = true
+				continue
+			}
 		case '"':
 			// Consume the string arg.
 			val := l.consumeString('"')
@@ -89,7 +104,7 @@ func (l *liftParser) lift() (string, LiftedArgs) {
 		}
 	}
 
-	return l.rewritten.String(), &l.vars
+	return strings.TrimSpace(l.rewritten.String()), &l.vars
 }
 
 func (l *liftParser) addLiftedVar(val argMapValue) {

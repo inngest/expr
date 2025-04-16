@@ -38,13 +38,35 @@ func TestLiftLiterals(t *testing.T) {
 				"b": "test/foobar",
 			},
 		},
+		{
+			name: "more complex",
+			expr: `
+			// we're breaking it
+			event.name == "test/yolo" || event.name == 'test/foobar'
+			`,
+			expectedStr: "event.name == vars.a || event.name == vars.b",
+			expectedArgs: map[string]any{
+				"a": "test/yolo",
+				"b": "test/foobar",
+			},
+		},
+		// {
+		// 	name:        "more complex",
+		// 	expr:        `/`,
+		// 	expectedStr: "/",
+		// },
+		// {
+		// 	name:        "ignore comments",
+		// 	expr:        `// foo`,
+		// 	expectedStr: "",
+		// },
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			expr, vars := liftLiterals(test.expr)
 
-			assert.Equal(t, test.expectedStr, expr)
+			assert.Equal(t, test.expectedStr, expr, test.expr)
 			assert.Equal(t, test.expectedArgs, vars.Map())
 		})
 	}
