@@ -86,11 +86,12 @@ func (l *liftParser) lift() (string, LiftedArgs) {
 
 		switch char {
 		case '/':
-			// if the next item is a comment, ignore the line.
-			if len(l.expr) > l.idx && l.expr[l.idx] == '/' {
+			// if the next character is a slash, this is a comment line ("//")
+			if len(l.expr) > l.idx && string(l.expr[l.idx]) == "/" {
 				comment = true
 				continue
 			}
+			l.rewritten.WriteByte(char)
 		case '"':
 			// Consume the string arg.
 			val := l.consumeString('"')

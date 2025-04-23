@@ -39,7 +39,7 @@ func TestLiftLiterals(t *testing.T) {
 			},
 		},
 		{
-			name: "more complex",
+			name: "multiple lines with comments",
 			expr: `
 			// we're breaking it
 			event.name == "test/yolo" || event.name == 'test/foobar'
@@ -51,9 +51,9 @@ func TestLiftLiterals(t *testing.T) {
 			},
 		},
 		{
-			name:         "more complex",
-			expr:         `/`,
-			expectedStr:  "",
+			name:         "division operator",
+			expr:         `event.ts / 1000 > 1745436368`,
+			expectedStr:  `event.ts / 1000 > 1745436368`,
 			expectedArgs: map[string]any{},
 		},
 		{
@@ -61,6 +61,14 @@ func TestLiftLiterals(t *testing.T) {
 			expr:         `// foo`,
 			expectedStr:  "",
 			expectedArgs: map[string]any{},
+		},
+		{
+			name:        "ignore trailing comments",
+			expr:        `event.name == "test/yolo" // foo`,
+			expectedStr: "event.name == vars.a",
+			expectedArgs: map[string]any{
+				"a": "test/yolo",
+			},
 		},
 	}
 
