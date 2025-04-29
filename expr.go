@@ -2,11 +2,13 @@ package expr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/cockroachdb/pebble/vfs"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
 )
@@ -29,14 +31,11 @@ var errEngineUnimplemented = fmt.Errorf("tree type unimplemented")
 // a boolean and error.
 type ExpressionEvaluator func(ctx context.Context, e Evaluable, input map[string]any) (bool, error)
 
-// EvaluableLoader returns one or more evaluable items given IDs.
-type EvaluableLoader func(ctx context.Context, evaluableIDs ...uuid.UUID) ([]Evaluable, error)
-
 // AggregateEvaluator represents a group of expressions that must be evaluated for a single
 // event received.
 //
 // An AggregateEvaluator instance exists for every event name being matched.
-type AggregateEvaluator interface {
+type AggregateEvaluator[T Evaluable] interface {
 	// Add adds an expression to the tree evaluator.  This returns the ratio
 	// of aggregate to slow parts in the expression, or an error if there was an
 	// issue.
@@ -44,10 +43,10 @@ type AggregateEvaluator interface {
 	// Purely aggregateable expressions have a ratio of 1.
 	// Mixed expressions return the ratio of fast:slow expressions, as a float.
 	// Slow, non-aggregateable expressions return 0.
-	Add(ctx context.Context, eval Evaluable) (float64, error)
+	Add(ctx context.Context, eval T) (float64, error)
 
 	// Remove removes an expression from the aggregate evaluator
-	Remove(ctx context.Context, eval Evaluable) error
+	Remove(ctx context.Context, eval T) error
 
 	// Evaluate checks input data against all exrpesssions in the aggregate in an optimal
 	// manner, only evaluating expressions when necessary (based off of tree matching).
@@ -57,7 +56,7 @@ type AggregateEvaluator interface {
 	//
 	// Evaluate returns all matching Evaluables, plus the total number of evaluations
 	// executed.
-	Evaluate(ctx context.Context, data map[string]any) ([]Evaluable, int32, error)
+	Evaluate(ctx context.Context, data map[string]any) ([]T, int32, error)
 
 	// AggregateMatch returns all expression parts which are evaluable given the input data.
 	AggregateMatch(ctx context.Context, data map[string]any) ([]*StoredExpressionPart, error)
@@ -77,37 +76,65 @@ type AggregateEvaluator interface {
 	SlowLen() int
 }
 
-func NewAggregateEvaluator(
-	parser TreeParser,
-	eval ExpressionEvaluator,
-	evalLoader EvaluableLoader,
-	concurrency int64,
-) AggregateEvaluator {
-	if concurrency <= 0 {
-		concurrency = defaultConcurrency
+type AggregateEvaluatorOpts[T Evaluable] struct {
+	// Parser is the parser to use which compiles expressions into a *ParsedExpression tree.
+	Parser TreeParser
+	// Eval is the evaluator function to use which, given an Evaluable and some input data,
+	// returns whether the expression evaluated to true or false.
+	Eval ExpressionEvaluator
+	// Concurrency is the number of evaluable instances to evaluate at once, if there
+	// are multiple matches for a given AggregateMatch or Evaluate call.
+	Concurrency int64
+	// KV represents storage for evaluables.
+	KV KV[T]
+}
+
+func NewAggregateEvaluator[T Evaluable](
+	opts AggregateEvaluatorOpts[T],
+) AggregateEvaluator[T] {
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = defaultConcurrency
 	}
 
-	return &aggregator{
-		eval:   eval,
-		parser: parser,
-		loader: evalLoader,
+	if opts.KV == nil {
+		var err error
+		opts.KV, err = NewKV[T](KVOpts[T]{
+			Marshal: func(eval T) ([]byte, error) {
+				return json.Marshal(eval)
+			},
+			Unmarshal: func(byt []byte) (T, error) {
+				var response T
+				err := json.Unmarshal(byt, response)
+				return response, err
+			},
+			FS: vfs.NewMem(),
+		})
+		if err != nil {
+			panic("unable to make KV for aggregate evaluator")
+		}
+	}
+
+	return &aggregator[T]{
+		kv:     opts.KV,
+		eval:   opts.Eval,
+		parser: opts.Parser,
 		engines: map[EngineType]MatchingEngine{
-			EngineTypeStringHash: newStringEqualityMatcher(concurrency),
-			EngineTypeNullMatch:  newNullMatcher(concurrency),
-			EngineTypeBTree:      newNumberMatcher(concurrency),
+			EngineTypeStringHash: newStringEqualityMatcher(opts.Concurrency),
+			EngineTypeNullMatch:  newNullMatcher(opts.Concurrency),
+			EngineTypeBTree:      newNumberMatcher(opts.Concurrency),
 		},
 		lock:        &sync.RWMutex{},
-		evals:       map[uuid.UUID]Evaluable{},
 		constants:   map[uuid.UUID]struct{}{},
 		mixed:       map[uuid.UUID]struct{}{},
-		concurrency: concurrency,
+		concurrency: opts.Concurrency,
 	}
 }
 
-type aggregator struct {
+type aggregator[T Evaluable] struct {
 	eval   ExpressionEvaluator
 	parser TreeParser
-	loader EvaluableLoader
+
+	kv KV[T]
 
 	// engines records all engines
 	engines map[EngineType]MatchingEngine
@@ -117,9 +144,6 @@ type aggregator struct {
 
 	// fastLen stores the current len of purely aggregable expressions.
 	fastLen int32
-
-	// evals stores all original evaluables in the aggregator.
-	evals map[uuid.UUID]Evaluable
 
 	// mixed stores the current len of mixed aggregable expressions,
 	// eg "foo == '1' && bar != '1'".  This is becasue != isn't aggregateable,
@@ -137,21 +161,21 @@ type aggregator struct {
 
 // Len returns the total number of aggregateable and constantly matched expressions
 // stored in the evaluator.
-func (a *aggregator) Len() int {
+func (a *aggregator[T]) Len() int {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 	return int(a.fastLen) + len(a.mixed) + len(a.constants)
 }
 
 // FastLen returns the number of expressions being matched by aggregated trees.
-func (a *aggregator) FastLen() int {
+func (a *aggregator[T]) FastLen() int {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 	return int(a.fastLen)
 }
 
 // MixedLen returns the number of expressions being matched by aggregated trees.
-func (a *aggregator) MixedLen() int {
+func (a *aggregator[T]) MixedLen() int {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 	return len(a.mixed)
@@ -159,17 +183,17 @@ func (a *aggregator) MixedLen() int {
 
 // SlowLen returns the total number of expressions that must constantly
 // be matched due to non-aggregateable clauses in their expressions.
-func (a *aggregator) SlowLen() int {
+func (a *aggregator[T]) SlowLen() int {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 	return len(a.constants)
 }
 
-func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evaluable, int32, error) {
+func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T, int32, error) {
 	var (
 		err     error
 		matched = int32(0)
-		result  = []Evaluable{}
+		result  = []T{}
 		s       sync.Mutex
 	)
 
@@ -177,8 +201,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 	a.lock.RLock()
 	for uuid := range a.constants {
-		item, ok := a.evals[uuid]
-		if !ok || item == nil {
+		item, err := a.kv.Get(uuid)
+		if err != nil {
 			continue
 		}
 
@@ -238,8 +262,8 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 	a.lock.RLock()
 	for _, expr := range matches {
-		eval, ok := a.evals[expr.Parsed.EvaluableID]
-		if !ok || eval == nil {
+		eval, err := a.kv.Get(expr.Parsed.EvaluableID)
+		if err != nil {
 			continue
 		}
 
@@ -290,7 +314,7 @@ func (a *aggregator) Evaluate(ctx context.Context, data map[string]any) ([]Evalu
 
 // AggregateMatch attempts to match incoming data to all PredicateTrees, resulting in a selection
 // of parts of an expression that have matched.
-func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([]*StoredExpressionPart, error) {
+func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any) ([]*StoredExpressionPart, error) {
 	result := []*StoredExpressionPart{}
 
 	a.lock.RLock()
@@ -373,7 +397,6 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 					// this wasn't fully aggregatable so evaluate it.
 					result = append(result, i)
 				}
-
 			}
 		}
 	}
@@ -388,16 +411,16 @@ func (a *aggregator) AggregateMatch(ctx context.Context, data map[string]any) ([
 // Purely aggregateable expressions have a ratio of 1.
 // Mixed expressions return the ratio of fast:slow expressions, as a float.
 // Slow, non-aggregateable expressions return 0.
-func (a *aggregator) Add(ctx context.Context, eval Evaluable) (float64, error) {
+func (a *aggregator[T]) Add(ctx context.Context, eval T) (float64, error) {
 	// parse the expression using our tree parser.
 	parsed, err := a.parser.Parse(ctx, eval)
 	if err != nil {
 		return -1, err
 	}
 
-	a.lock.Lock()
-	a.evals[eval.GetID()] = eval
-	a.lock.Unlock()
+	if err := a.kv.Set(eval); err != nil {
+		return -1, err
+	}
 
 	if eval.GetExpression() == "" || parsed.HasMacros {
 		// This is an empty expression which always matches.
@@ -410,7 +433,6 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (float64, error) {
 	stats := &exprAggregateStats{}
 	for _, g := range parsed.RootGroups() {
 		s, err := a.iterGroup(ctx, g, parsed, a.addNode)
-
 		if err != nil {
 			// This is the first time we're seeing a non-aggregateable
 			// group, so add it to the constants list and don't do anything else.
@@ -445,10 +467,10 @@ func (a *aggregator) Add(ctx context.Context, eval Evaluable) (float64, error) {
 	return stats.Ratio(), err
 }
 
-func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
-	a.lock.Lock()
-	delete(a.evals, eval.GetID())
-	a.lock.Unlock()
+func (a *aggregator[T]) Remove(ctx context.Context, eval T) error {
+	if err := a.kv.Remove(eval.GetID()); err != nil {
+		return err
+	}
 
 	if eval.GetExpression() == "" {
 		return a.removeConstantEvaluable(ctx, eval)
@@ -496,7 +518,7 @@ func (a *aggregator) Remove(ctx context.Context, eval Evaluable) error {
 	return nil
 }
 
-func (a *aggregator) removeConstantEvaluable(_ context.Context, eval Evaluable) error {
+func (a *aggregator[T]) removeConstantEvaluable(_ context.Context, eval Evaluable) error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
@@ -557,7 +579,7 @@ func (e *exprAggregateStats) Ratio() float64 {
 }
 
 // iterGroup iterates the entire expression, returning statistics on how "aggregateable" the expression is
-func (a *aggregator) iterGroup(ctx context.Context, node *Node, parsed *ParsedExpression, op nodeOp) (exprAggregateStats, error) {
+func (a *aggregator[T]) iterGroup(ctx context.Context, node *Node, parsed *ParsedExpression, op nodeOp) (exprAggregateStats, error) {
 	stats := &exprAggregateStats{}
 
 	// It's possible that if there are additional branches, don't bother to add this to the aggregate tree.
@@ -645,7 +667,7 @@ func engineType(p Predicate) EngineType {
 // nodeOp represents an op eg. addNode or removeNode
 type nodeOp func(ctx context.Context, n *Node, parsed *ParsedExpression) error
 
-func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
+func (a *aggregator[T]) addNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
 	if n.Predicate == nil {
 		return nil
 	}
@@ -665,7 +687,7 @@ func (a *aggregator) addNode(ctx context.Context, n *Node, parsed *ParsedExpress
 	})
 }
 
-func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
+func (a *aggregator[T]) removeNode(ctx context.Context, n *Node, parsed *ParsedExpression) error {
 	if n.Predicate == nil {
 		return nil
 	}
@@ -685,7 +707,7 @@ func (a *aggregator) removeNode(ctx context.Context, n *Node, parsed *ParsedExpr
 	})
 }
 
-func (a *aggregator) engine(n *Node) MatchingEngine {
+func (a *aggregator[T]) engine(n *Node) MatchingEngine {
 	requiredEngine := engineType(*n.Predicate)
 	if requiredEngine == EngineTypeNone {
 		return nil
