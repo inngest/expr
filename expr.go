@@ -135,7 +135,7 @@ func NewAggregateEvaluator[T Evaluable](
 		}
 		opts.KV, err = NewKV[T](kvopts)
 		if err != nil {
-			panic("unable to make KV for aggregate evaluator")
+			panic(fmt.Sprintf("unable to make KV for aggregate evaluator: %s", err))
 		}
 	}
 
@@ -287,7 +287,7 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 
 	a.lock.RLock()
 	for _, expr := range matches {
-		eval, err := a.kv.Get(expr.Parsed.EvaluableID)
+		eval, err := a.kv.Get(expr.EvaluableID)
 		if err != nil {
 			continue
 		}
@@ -366,7 +366,7 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 
 		// Add all found items from the engine to the above list.
 		for _, eval := range matched {
-			idCount, idFound := totalCounts[eval.Parsed.EvaluableID], found[eval.Parsed.EvaluableID]
+			idCount, idFound := totalCounts[eval.EvaluableID], found[eval.EvaluableID]
 
 			if idCount == nil {
 				idCount = map[groupID]int{}
@@ -380,8 +380,8 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 			idFound[eval.GroupID] = append(idFound[eval.GroupID], eval)
 
 			// Update mapping
-			totalCounts[eval.Parsed.EvaluableID] = idCount
-			found[eval.Parsed.EvaluableID] = idFound
+			totalCounts[eval.EvaluableID] = idCount
+			found[eval.EvaluableID] = idFound
 		}
 
 	}
@@ -396,10 +396,10 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 
 			if matchingCount >= requiredSize {
 				for _, i := range found[evalID][groupID] {
-					if _, ok := seen[i.Parsed.EvaluableID]; ok {
+					if _, ok := seen[i.EvaluableID]; ok {
 						continue
 					}
-					seen[i.Parsed.EvaluableID] = struct{}{}
+					seen[i.EvaluableID] = struct{}{}
 					result = append(result, i)
 				}
 				continue
@@ -418,7 +418,7 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 				//
 				// So, we only need to care if this expression is mixed.  If it's mixed,
 				// we can ignore group IDs for the time being.
-				if _, ok := a.mixed[i.Parsed.EvaluableID]; ok {
+				if _, ok := a.mixed[i.EvaluableID]; ok {
 					// this wasn't fully aggregatable so evaluate it.
 					result = append(result, i)
 				}
