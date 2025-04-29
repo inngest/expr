@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -96,19 +97,43 @@ func NewAggregateEvaluator[T Evaluable](
 		opts.Concurrency = defaultConcurrency
 	}
 
+	// Create a new KV store.
 	if opts.KV == nil {
 		var err error
-		opts.KV, err = NewKV[T](KVOpts[T]{
+		kvopts := KVOpts[T]{
 			Marshal: func(eval T) ([]byte, error) {
 				return json.Marshal(eval)
 			},
-			Unmarshal: func(byt []byte) (T, error) {
-				var response T
-				err := json.Unmarshal(byt, response)
-				return response, err
+			Unmarshal: func(byt []byte) (t T, err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("error unmarshalling type %T: %s. Did you pass an interface type to NewAggregateEvaluator?", t, r)
+					}
+				}()
+
+				// Create a new concrete zero type &T
+				val := reflect.New(reflect.TypeOf(t)).Interface()
+				err = json.Unmarshal(byt, val)
+				if err != nil {
+					return t, err
+				}
+
+				// If the generic kind is a ptr, we can return the type &T directly.
+				if reflect.TypeOf(t).Kind() == reflect.Ptr {
+					return val.(T), err
+				}
+
+				// Otherwise, deref.
+				return reflect.ValueOf(val).Elem().Interface().(T), err
 			},
 			FS: vfs.NewMem(),
-		})
+		}
+		// Attempt to unmarshal an empty byte slice, ensuring that we have
+		// a concrete type instead of an interface.
+		if _, err := kvopts.Unmarshal([]byte("{}")); err != nil {
+			panic(fmt.Sprintf("unable to make KV for aggregate evaluator without concrete type: %s", err))
+		}
+		opts.KV, err = NewKV[T](kvopts)
 		if err != nil {
 			panic("unable to make KV for aggregate evaluator")
 		}
