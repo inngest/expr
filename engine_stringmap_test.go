@@ -13,7 +13,7 @@ func TestEngineStringmap(t *testing.T) {
 	ctx := context.Background()
 	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 
-	gid := newGroupID(4, 2) // optimized to 2 == matches.
+	gid := newGroupID(3, 2) // optimized to 2 == matches.
 	exp := &ParsedExpression{
 		EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-neq")),
 	}
@@ -181,6 +181,9 @@ func TestEngineStringmap(t *testing.T) {
 		// This matches all 3 expressions, but the compound expression a+c+d will not have
 		// enough group IDs to match.
 		require.Equal(t, 3, result.Len())
+
+		require.Equal(t, 1, result.Result[exp.EvaluableID][gid])
+		require.Equal(t, int8(3), int8(gid.Size()))
 	})
 
 	t.Run("It matches data with expression optimizations in group ID", func(t *testing.T) {
