@@ -83,21 +83,23 @@ func TestEngineStringmap(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("It searches strings", func(t *testing.T) {
-		parts := s.Search(ctx, "async.data.id", "123")
-		require.Equal(t, 2, len(parts))
+		result := NewMatchResult()
+		s.Search(ctx, "async.data.id", "123", result)
+		require.Equal(t, 2, result.Len())
 
-		for _, part := range parts {
-			require.EqualValues(t, part.PredicateID, a.Hash())
-			require.EqualValues(t, part.PredicateID, b.Hash())
-		}
+		// As this only has two results, this should be easy. Contain just A and B.
+		require.Contains(t, result.Result, a.Parsed.EvaluableID)
+		require.Contains(t, result.Result, b.Parsed.EvaluableID)
 
 		t.Run("It handles variable names", func(t *testing.T) {
-			parts = s.Search(ctx, "this doesn't matter", "123")
-			require.Equal(t, 0, len(parts))
+			result = NewMatchResult()
+			s.Search(ctx, "this doesn't matter", "123", result)
+			require.Equal(t, 0, result.Len())
 		})
 
-		parts = s.Search(ctx, "async.data.another", "456")
-		require.Equal(t, 1, len(parts))
+		result = NewMatchResult()
+		s.Search(ctx, "async.data.another", "456", result)
+		require.Equal(t, 1, result.Len())
 	})
 
 	// Inequality
@@ -108,70 +110,76 @@ func TestEngineStringmap(t *testing.T) {
 
 	t.Run("inequality", func(t *testing.T) {
 		t.Run("first case: neq-1", func(t *testing.T) {
-			parts, err := s.Match(ctx, map[string]any{
+			result := NewMatchResult()
+			err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "neq-1"},
 				},
-			})
+			}, result)
 			require.NoError(t, err)
-			require.Equal(t, 1, len(parts))
-			require.EqualValues(t, parts[0].PredicateID, e.Hash())
+			require.Equal(t, 1, result.Len())
+			require.Contains(t, result.Result, e.Parsed.EvaluableID)
 		})
 
 		t.Run("second case: neq-1", func(t *testing.T) {
-			parts, err := s.Match(ctx, map[string]any{
+			result := NewMatchResult()
+			err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "neq-2"},
 				},
-			})
+			}, result)
 			require.NoError(t, err)
-			require.Equal(t, 1, len(parts))
-			require.EqualValues(t, parts[0].PredicateID, d.Hash())
+			require.Equal(t, 1, result.Len())
+			require.Contains(t, result.Result, d.Parsed.EvaluableID)
 		})
 
 		t.Run("third case: both", func(t *testing.T) {
-			parts, err := s.Match(ctx, map[string]any{
+			result := NewMatchResult()
+			err := s.Match(ctx, map[string]any{
 				"async": map[string]any{
 					"data": map[string]any{"neq": "both"},
 				},
-			})
+			}, result)
 			require.NoError(t, err)
-			require.Equal(t, 2, len(parts))
+			require.Equal(t, 2, result.Len())
 		})
 	})
 
 	t.Run("It matches data, including neq", func(t *testing.T) {
-		found, err := s.Match(ctx, map[string]any{
+		result := NewMatchResult()
+		err := s.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
-					"id":  "123",
-					"neq": "lol",
+					"id":  "123", // A and B
+					"neq": "lol", // D
 				},
 			},
-		})
+		}, result)
 		require.NoError(t, err)
 
 		// This should match "neq-single" and eq-single only.  It shouldn't
-		// match the eq-neq expression, as the "async.data.nother" part wasn't matched
+		// match the eq-neq expression, as the "async.data.another" part wasn't matched
 		// and there's expression optimization to test this.
-		require.Equal(t, 2, len(found))
+		require.Equal(t, 2, result.Len())
 	})
 
 	t.Run("It matches data with null neq", func(t *testing.T) {
-		found, err := s.Match(ctx, map[string]any{
+		result := NewMatchResult()
+		err := s.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id": "123",
 					// by not including neq, we ensure we test against null matches.
 				},
 			},
-		})
+		}, result)
 		require.NoError(t, err)
-		require.Equal(t, 2, len(found)) // matching plus inequality
+		require.Equal(t, 2, result.Len()) // matching plus inequality
 	})
 
 	t.Run("It matches data with expression optimizations in group ID", func(t *testing.T) {
-		found, err := s.Match(ctx, map[string]any{
+		result := NewMatchResult()
+		err := s.Match(ctx, map[string]any{
 			"async": map[string]any{
 				"data": map[string]any{
 					"id":      "123",
@@ -179,10 +187,10 @@ func TestEngineStringmap(t *testing.T) {
 					"neq":     "lol",
 				},
 			},
-		})
+		}, result)
 		require.NoError(t, err)
 
-		require.Equal(t, 4, len(found))
+		require.Equal(t, 4, result.Len())
 	})
 }
 
@@ -209,9 +217,9 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 	require.NoError(t, err)
 
 	// It only matches var B
-	parts := s.Search(ctx, "async.data.var_b", "123")
-	require.Equal(t, 1, len(parts))
-
+	result := NewMatchResult()
+	s.Search(ctx, "async.data.var_b", "123", result)
+	require.Equal(t, 1, result.Len())
 }
 
 func TestEngineStringmap_DuplicateNeq(t *testing.T) {
@@ -223,6 +231,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "a",
 			Operator: operators.Equals,
 		},
+		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
 	}
 	b := ExpressionPart{
 		Predicate: &Predicate{
@@ -230,6 +239,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "b",
 			Operator: operators.Equals,
 		},
+		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
 	}
 	c := ExpressionPart{
 		Predicate: &Predicate{
@@ -237,6 +247,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "123",
 			Operator: operators.NotEquals,
 		},
+		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
 	}
 	err := s.Add(ctx, a)
 	require.NoError(t, err)
@@ -245,24 +256,19 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	err = s.Add(ctx, c)
 	require.NoError(t, err)
 
-	parts, err := s.Match(ctx, map[string]any{
+	result := NewMatchResult()
+	err = s.Match(ctx, map[string]any{
 		"async": map[string]any{
 			"data": map[string]any{
 				"var_a": "a",
 				"var_b": "nah",
 			},
 		},
-	})
+	}, result)
 
 	require.NoError(t, err)
-	require.Equal(t, 2, len(parts))
-	for _, v := range parts {
-		// Never matches B, as B isn't complete.
-		require.NotEqualValues(t, v.PredicateID, b.Hash())
-		require.Contains(t, []uint64{
-			a.Hash(),
-			c.Hash(),
-		}, v.PredicateID)
-	}
+	require.Equal(t, 2, result.Len())
 
+	// Never matches B, as B isn't complete.
+	require.NotContains(t, result.Result, b.Parsed.EvaluableID)
 }
