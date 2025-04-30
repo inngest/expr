@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/google/cel-go/common/operators"
@@ -62,7 +63,7 @@ func (s stringLookup) Type() EngineType {
 }
 
 func (n *stringLookup) Match(ctx context.Context, input map[string]any, result *MatchResult) error {
-	neqOptimized := false
+	neqOptimized := int32(0)
 
 	// First, handle equality matching.
 	pool := newErrPool(errPoolOpts{concurrency: n.concurrency})
@@ -86,7 +87,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any, result *
 
 			if opt {
 				// Set optimized to true in every case.
-				neqOptimized = true
+				atomic.AddInt32(&neqOptimized, 1)
 			}
 			return nil
 		})
@@ -113,7 +114,7 @@ func (n *stringLookup) Match(ctx context.Context, input map[string]any, result *
 				}
 			}
 
-			n.inequalitySearch(ctx, path, str, neqOptimized, result)
+			n.inequalitySearch(ctx, path, str, atomic.LoadInt32(&neqOptimized) > 0, result)
 
 			return nil
 		})
