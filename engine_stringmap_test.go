@@ -17,19 +17,11 @@ func TestEngineStringmap(t *testing.T) {
 	exp := &ParsedExpression{
 		EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-neq")),
 	}
-
+	// a, c, and d belong to the same expression 'eq-neq':
+	// "async.data.id == '123' && async.data.another == '456' && asnc.data.neq != 'neq-1'"
 	a := ExpressionPart{
 		Parsed:  exp,
 		GroupID: gid,
-		Predicate: &Predicate{
-			Ident:    "async.data.id",
-			Literal:  "123",
-			Operator: operators.Equals,
-		},
-	}
-	b := ExpressionPart{
-		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-single"))},
-		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
 		Predicate: &Predicate{
 			Ident:    "async.data.id",
 			Literal:  "123",
@@ -45,7 +37,6 @@ func TestEngineStringmap(t *testing.T) {
 			Operator: operators.Equals,
 		},
 	}
-
 	// Test inequality
 	d := ExpressionPart{
 		Parsed:  exp,
@@ -56,6 +47,19 @@ func TestEngineStringmap(t *testing.T) {
 			Operator: operators.NotEquals,
 		},
 	}
+
+	// b is a new expression.
+	b := ExpressionPart{
+		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-single"))},
+		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
+		Predicate: &Predicate{
+			Ident:    "async.data.id",
+			Literal:  "123",
+			Operator: operators.Equals,
+		},
+	}
+
+	// e is a new expression.
 	e := ExpressionPart{
 		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("neq-single"))},
 		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
@@ -157,10 +161,9 @@ func TestEngineStringmap(t *testing.T) {
 		}, result)
 		require.NoError(t, err)
 
-		// This should match "neq-single" and eq-single only.  It shouldn't
-		// match the eq-neq expression, as the "async.data.another" part wasn't matched
-		// and there's expression optimization to test this.
-		require.Equal(t, 2, result.Len())
+		// This matches all 3 expressions, but the compound expression a+c+d will not have
+		// enough group IDs to match.
+		require.Equal(t, 3, result.Len())
 	})
 
 	t.Run("It matches data with null neq", func(t *testing.T) {
@@ -174,7 +177,10 @@ func TestEngineStringmap(t *testing.T) {
 			},
 		}, result)
 		require.NoError(t, err)
-		require.Equal(t, 2, result.Len()) // matching plus inequality
+
+		// This matches all 3 expressions, but the compound expression a+c+d will not have
+		// enough group IDs to match.
+		require.Equal(t, 3, result.Len())
 	})
 
 	t.Run("It matches data with expression optimizations in group ID", func(t *testing.T) {
@@ -190,7 +196,11 @@ func TestEngineStringmap(t *testing.T) {
 		}, result)
 		require.NoError(t, err)
 
-		require.Equal(t, 4, result.Len())
+		// We only have 3 expressions, but all should have each group ID matching.
+		require.Equal(t, 3, result.Len())
+		require.Equal(t, 3, result.Result[exp.EvaluableID][gid]) //  3 parts to this expr
+		require.Equal(t, 1, result.Result[e.Parsed.EvaluableID][e.GroupID])
+		require.Equal(t, 1, result.Result[b.Parsed.EvaluableID][b.GroupID])
 	})
 }
 
