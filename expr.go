@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -88,6 +89,8 @@ type AggregateEvaluatorOpts[T Evaluable] struct {
 	Concurrency int64
 	// KV represents storage for evaluables.
 	KV KV[T]
+	// Log is a stdlib logger used for logging.  If nil, this will be slog.Default().
+	Log *slog.Logger
 }
 
 func NewAggregateEvaluator[T Evaluable](
@@ -95,6 +98,10 @@ func NewAggregateEvaluator[T Evaluable](
 ) AggregateEvaluator[T] {
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = defaultConcurrency
+	}
+
+	if opts.Log == nil {
+		opts.Log = slog.Default()
 	}
 
 	// Create a new KV store.
@@ -152,12 +159,15 @@ func NewAggregateEvaluator[T Evaluable](
 		constants:   map[uuid.UUID]struct{}{},
 		mixed:       map[uuid.UUID]struct{}{},
 		concurrency: opts.Concurrency,
+		log:         opts.Log,
 	}
 }
 
 type aggregator[T Evaluable] struct {
 	eval   ExpressionEvaluator
 	parser TreeParser
+
+	log *slog.Logger
 
 	kv KV[T]
 
@@ -353,26 +363,19 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 	// Note that having a count >= the group ID value does not guarantee that the expression is valid.
 	//
 	// Note that we break this down per evaluable ID (UUID)
-	found := map[uuid.UUID]map[groupID]int{}
+	found := NewMatchResult()
 
 	for _, engine := range a.engines {
 		// we explicitly ignore the deny path for now.
-		matched, err := engine.Match(ctx, data)
-		if err != nil {
+		if err := engine.Match(ctx, data, found); err != nil {
 			return nil, err
-		}
-
-		// Add all found items from the engine to the above list.
-		for _, eval := range matched {
-			if _, ok := found[eval.EvaluableID]; !ok {
-				found[eval.EvaluableID] = map[groupID]int{}
-			}
-			found[eval.EvaluableID][eval.GroupID]++
 		}
 	}
 
+	a.log.Debug("ran matching engines", "len_matched_no_filter", found.Len())
+
 	// Validate that groups meet the minimum size.
-	for evalID, groups := range found {
+	for evalID, groups := range found.Result {
 		for groupID, matchingCount := range groups {
 			requiredSize := int(groupID.Size()) // The total req size from the group ID
 
@@ -383,7 +386,6 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 			}
 
 		}
-
 		// After iterating through each group, we now know:
 		//
 		// if len(groups) > 0, we have enough matches in this eval group for
@@ -399,6 +401,8 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 			result = append(result, &evalID)
 		}
 	}
+
+	a.log.Debug("filtered invalid groups", "len_matched", len(result))
 
 	return result, nil
 }
