@@ -21,87 +21,19 @@ func BenchmarkCachingEvaluate1_000(b *testing.B) {
 	benchEval(1_000, NewCachingCompiler(newEnv(), nil), b)
 }
 
-// func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
-func benchEval(i int, p CELCompiler, b *testing.B) {
-	for n := 0; n < b.N; n++ {
-		parser := NewTreeParser(p)
-		_ = evaluate(b, i, parser)
-	}
-}
-
-func newEvalLoader() *evalLoader {
-	return &evalLoader{
-		l: &sync.Mutex{},
-		d: map[uuid.UUID]Evaluable{},
-	}
-}
-
-type evalLoader struct {
-	l *sync.Mutex
-	d map[uuid.UUID]Evaluable
-}
-
-func (e *evalLoader) Load(ctx context.Context, evalID ...uuid.UUID) ([]Evaluable, error) {
-	e.l.Lock()
-	defer e.l.Unlock()
-	evals := []Evaluable{}
-	for _, id := range evalID {
-		eval, ok := e.d[id]
-		if !ok {
-			continue
-		}
-		evals = append(evals, eval)
-	}
-	return evals, nil
-}
-
-func (e *evalLoader) AddEval(eval Evaluable) Evaluable {
-	e.l.Lock()
-	defer e.l.Unlock()
-	e.d[eval.GetID()] = eval
-	return eval
-}
-
-func (e *evalLoader) AddStr(expr string) Evaluable {
-	e.l.Lock()
-	defer e.l.Unlock()
-	eval := tex(expr)
-	e.d[eval.GetID()] = eval
-	return eval
-}
-
-func evaluate(b *testing.B, i int, parser TreeParser) error {
-	b.StopTimer()
-	ctx := context.Background()
-
-	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
-	loader := newEvalLoader()
-	loader.AddEval(expected)
-
-	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
-		Parser:      parser,
-		Eval:        testBoolEvaluator,
-		Concurrency: 0,
-	})
-	_, _ = e.Add(ctx, expected)
-
-	addOtherExpressions(i, e, loader)
-
-	b.StartTimer()
-
-	results, _, _ := e.Evaluate(ctx, map[string]any{
-		"event": map[string]any{
-			"data": map[string]any{
-				"account_id": "yes",
-				"match":      "true",
-			},
-		},
+func TestNewAggregateEvaluator(t *testing.T) {
+	t.Run("with concrete structs", func(t *testing.T) {
+		// These shouldn't panic.
+		NewAggregateEvaluator(AggregateEvaluatorOpts[*testEvaluable]{})
+		NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{})
 	})
 
-	if len(results) != 1 {
-		return fmt.Errorf("unexpected number of results: %d", len(results))
-	}
-	return nil
+	t.Run("with interfaces", func(t *testing.T) {
+		// These should panic.
+		require.Panics(t, func() {
+			NewAggregateEvaluator(AggregateEvaluatorOpts[Evaluable]{})
+		})
+	})
 }
 
 func TestAdd(t *testing.T) {
@@ -1266,6 +1198,89 @@ func TestMixedEngines(t *testing.T) {
 		require.EqualValues(t, 0, len(eval))
 		require.EqualValues(t, 0, count)
 	})
+}
+
+// func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
+func benchEval(i int, p CELCompiler, b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		parser := NewTreeParser(p)
+		_ = evaluate(b, i, parser)
+	}
+}
+
+func newEvalLoader() *evalLoader {
+	return &evalLoader{
+		l: &sync.Mutex{},
+		d: map[uuid.UUID]Evaluable{},
+	}
+}
+
+type evalLoader struct {
+	l *sync.Mutex
+	d map[uuid.UUID]Evaluable
+}
+
+func (e *evalLoader) Load(ctx context.Context, evalID ...uuid.UUID) ([]Evaluable, error) {
+	e.l.Lock()
+	defer e.l.Unlock()
+	evals := []Evaluable{}
+	for _, id := range evalID {
+		eval, ok := e.d[id]
+		if !ok {
+			continue
+		}
+		evals = append(evals, eval)
+	}
+	return evals, nil
+}
+
+func (e *evalLoader) AddEval(eval Evaluable) Evaluable {
+	e.l.Lock()
+	defer e.l.Unlock()
+	e.d[eval.GetID()] = eval
+	return eval
+}
+
+func (e *evalLoader) AddStr(expr string) Evaluable {
+	e.l.Lock()
+	defer e.l.Unlock()
+	eval := tex(expr)
+	e.d[eval.GetID()] = eval
+	return eval
+}
+
+func evaluate(b *testing.B, i int, parser TreeParser) error {
+	b.StopTimer()
+	ctx := context.Background()
+
+	expected := tex(`event.data.account_id == "yes" && event.data.match == "true"`)
+	loader := newEvalLoader()
+	loader.AddEval(expected)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+	})
+	_, _ = e.Add(ctx, expected)
+
+	addOtherExpressions(i, e, loader)
+
+	b.StartTimer()
+
+	results, _, _ := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{
+			"data": map[string]any{
+				"account_id": "yes",
+				"match":      "true",
+			},
+		},
+	})
+
+	if len(results) != 1 {
+		return fmt.Errorf("unexpected number of results: %d", len(results))
+	}
+	return nil
 }
 
 // tex represents a test Evaluable expression

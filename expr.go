@@ -118,19 +118,12 @@ func NewAggregateEvaluator[T Evaluable](
 					}
 				}()
 
-				// Create a new concrete zero type &T
 				val := reflect.New(reflect.TypeOf(t)).Interface()
 				err = json.Unmarshal(byt, val)
 				if err != nil {
 					return t, err
 				}
 
-				// If the generic kind is a ptr, we can return the type &T directly.
-				if reflect.TypeOf(t).Kind() == reflect.Ptr {
-					return val.(T), err
-				}
-
-				// Otherwise, deref.
 				return reflect.ValueOf(val).Elem().Interface().(T), err
 			},
 			FS: vfs.NewMem(),
