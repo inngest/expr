@@ -57,7 +57,7 @@ func TestParse(t *testing.T) {
 			require.NotNil(t, actual.Root.GroupID)
 
 			// Shortcut to ensure the evaluable instance matches
-			if test.expected.EvaluableID == uuid.Nil {
+			if test.expected.EvaluableID.Value() == uuid.Nil {
 				test.expected.EvaluableID = eval.GetID()
 			}
 
@@ -1052,7 +1052,6 @@ func TestParse(t *testing.T) {
 		}
 
 		assert(t, tests)
-
 	})
 
 	// TODO: Should figure how to support it in the future
@@ -1143,7 +1142,7 @@ func TestParse_LiftedVars(t *testing.T) {
 			actual, err := p.Parse(ctx, eval)
 
 			// Shortcut to ensure the evaluable instance matches
-			if test.expected.EvaluableID == uuid.Nil {
+			if test.expected.EvaluableID.Value() == uuid.Nil {
 				test.expected.EvaluableID = eval.GetID()
 			}
 
@@ -1278,7 +1277,6 @@ func TestParsedCELAST(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, result, false)
 	})
-
 }
 
 func TestRootGroups(t *testing.T) {
@@ -1318,5 +1316,4 @@ func TestRootGroups(t *testing.T) {
 		r.NoError(err)
 		r.Equal(2, len(actual.RootGroups()))
 	})
-
 }

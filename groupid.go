@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"unique"
 )
 
 // groupID represents a group ID.  Layout, in bytes:
@@ -11,6 +12,8 @@ import (
 // - 1: optimization flag, for optimizing "!=" in string matching
 // - 5: random ID for group
 type groupID [8]byte
+
+type uGroupID = unique.Handle[groupID]
 
 // type internedGroupID unique.Handle[groupID]
 //
@@ -46,8 +49,8 @@ func (g groupID) Flag() byte {
 	return g[2]
 }
 
-func newGroupID(size uint16, optimizeFlag byte) groupID {
-	return newGroupIDWithReader(size, optimizeFlag, rander)
+func newGroupID(size uint16, optimizeFlag byte) uGroupID {
+	return unique.Make(newGroupIDWithReader(size, optimizeFlag, rander))
 }
 
 func newGroupIDWithReader(size uint16, optimizeFlag byte, rander RandomReader) groupID {

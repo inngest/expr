@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"unique"
 
 	"github.com/google/cel-go/cel"
 	celast "github.com/google/cel-go/common/ast"
@@ -93,7 +94,7 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		// group IDs will be deterministic as the randomness is sourced from the ID.
 		//
 		// We only overwrite this if rander is not nil so that we can inject rander during tests.
-		id := eval.GetID()
+		id := eval.GetID().Value()
 		seed := int64(binary.NativeEndian.Uint64(id[:8]))
 		r = rand.New(rand.NewSource(seed)).Read
 	}
@@ -137,7 +138,7 @@ type ParsedExpression struct {
 	Vars LiftedArgs
 
 	// Evaluable stores the original evaluable interface that was parsed.
-	EvaluableID uuid.UUID
+	EvaluableID unique.Handle[uuid.UUID]
 
 	HasMacros bool
 }
@@ -169,7 +170,7 @@ func (p ParsedExpression) RootGroups() []*Node {
 // This requres A *and* either B or C, and so we require all ANDs plus at least one node
 // from OR to evaluate to true
 type Node struct {
-	GroupID groupID
+	GroupID uGroupID
 
 	// Ands contains predicates at this level of the expression that are joined together
 	// with an && operator.  All nodes in this set must evaluate to true in order for this
@@ -531,7 +532,7 @@ func navigateAST(nav expr, parent *Node, vars LiftedArgs, rand RandomReader) ([]
 	// When checking an incoming event, we match the event against each node's
 	// ident/variable.  Using the group ID, we can see if we've matched N necessary
 	// items from the same identifier.  If so, the evaluation is true.
-	parent.GroupID = newGroupIDWithReader(uint16(total), flag, rand)
+	parent.GroupID = unique.Make(newGroupIDWithReader(uint16(total), flag, rand))
 
 	// For each sub-group, add the same group IDs to children if there's no nesting.
 	//

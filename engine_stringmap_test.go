@@ -3,6 +3,7 @@ package expr
 import (
 	"context"
 	"testing"
+	"unique"
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
@@ -15,7 +16,7 @@ func TestEngineStringmap(t *testing.T) {
 
 	gid := newGroupID(3, 2) // optimized to 2 == matches.
 	exp := &ParsedExpression{
-		EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-neq")),
+		EvaluableID: unique.Make(uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-neq"))),
 	}
 	// a, c, and d belong to the same expression 'eq-neq':
 	// "async.data.id == '123' && async.data.another == '456' && asnc.data.neq != 'neq-1'"
@@ -50,8 +51,8 @@ func TestEngineStringmap(t *testing.T) {
 
 	// b is a new expression.
 	b := ExpressionPart{
-		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-single"))},
 		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
+		Parsed:  &ParsedExpression{EvaluableID: unique.Make(uuid.NewSHA1(uuid.NameSpaceURL, []byte("eq-single")))},
 		Predicate: &Predicate{
 			Ident:    "async.data.id",
 			Literal:  "123",
@@ -61,7 +62,7 @@ func TestEngineStringmap(t *testing.T) {
 
 	// e is a new expression.
 	e := ExpressionPart{
-		Parsed:  &ParsedExpression{EvaluableID: uuid.NewSHA1(uuid.NameSpaceURL, []byte("neq-single"))},
+		Parsed:  &ParsedExpression{EvaluableID: unique.Make(uuid.NewSHA1(uuid.NameSpaceURL, []byte("neq-single")))},
 		GroupID: newGroupID(1, 0), // This belongs to a "different" expression, but is the same pred.
 		Predicate: &Predicate{
 			Ident:    "async.data.neq",
@@ -183,7 +184,7 @@ func TestEngineStringmap(t *testing.T) {
 		require.Equal(t, 3, result.Len())
 
 		require.Equal(t, 1, result.Result[exp.EvaluableID][gid])
-		require.Equal(t, int8(3), int8(gid.Size()))
+		require.Equal(t, int8(3), int8(gid.Value().Size()))
 	})
 
 	t.Run("It matches data with expression optimizations in group ID", func(t *testing.T) {
@@ -211,6 +212,7 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 	ctx := context.Background()
 	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
 	a := ExpressionPart{
+		GroupID: newGroupID(1, 0),
 		Predicate: &Predicate{
 			Ident:    "async.data.var_a",
 			Literal:  "123",
@@ -218,6 +220,7 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 		},
 	}
 	b := ExpressionPart{
+		GroupID: newGroupID(1, 0),
 		Predicate: &Predicate{
 			Ident:    "async.data.var_b",
 			Literal:  "123",
@@ -244,7 +247,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "a",
 			Operator: operators.Equals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	b := ExpressionPart{
 		Predicate: &Predicate{
@@ -252,7 +255,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "b",
 			Operator: operators.Equals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	c := ExpressionPart{
 		Predicate: &Predicate{
@@ -260,7 +263,7 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 			Literal:  "123",
 			Operator: operators.NotEquals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	err := s.Add(ctx, a)
 	require.NoError(t, err)

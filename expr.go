@@ -12,7 +12,6 @@ import (
 
 	"github.com/cockroachdb/pebble/vfs"
 	"github.com/google/cel-go/common/operators"
-	"github.com/google/uuid"
 )
 
 var (
@@ -61,7 +60,7 @@ type AggregateEvaluator[T Evaluable] interface {
 	Evaluate(ctx context.Context, data map[string]any) ([]T, int32, error)
 
 	// AggregateMatch returns all expression parts which are evaluable given the input data.
-	AggregateMatch(ctx context.Context, data map[string]any) ([]*uuid.UUID, error)
+	AggregateMatch(ctx context.Context, data map[string]any) ([]UniqueUUID, error)
 
 	// Len returns the total number of aggregateable and constantly matched expressions
 	// stored in the evaluator.
@@ -156,8 +155,8 @@ func NewAggregateEvaluator[T Evaluable](
 			EngineTypeBTree:      newNumberMatcher(opts.Concurrency),
 		},
 		lock:        &sync.RWMutex{},
-		constants:   map[uuid.UUID]struct{}{},
-		mixed:       map[uuid.UUID]struct{}{},
+		constants:   map[UniqueUUID]struct{}{},
+		mixed:       map[UniqueUUID]struct{}{},
 		concurrency: opts.Concurrency,
 		log:         opts.Log,
 	}
@@ -185,11 +184,11 @@ type aggregator[T Evaluable] struct {
 	// but the first `==` is used as a prefilter.
 	//
 	// This stores all evaluable IDs for fast lookup with Evaluable.
-	mixed map[uuid.UUID]struct{}
+	mixed map[UniqueUUID]struct{}
 
 	// constants tracks evaluable IDs that must always be evaluated, due to
 	// the expression containing non-aggregateable clauses.
-	constants map[uuid.UUID]struct{}
+	constants map[UniqueUUID]struct{}
 
 	concurrency int64
 }
@@ -236,7 +235,7 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 
 	a.lock.RLock()
 	for uuid := range a.constants {
-		item, err := a.kv.Get(uuid)
+		item, err := a.kv.Get(uuid.Value())
 		if err != nil {
 			continue
 		}
@@ -291,13 +290,13 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 	// for each group ID and then skip evaluating expressions if the number of matches is <= the group
 	// ID's length.
 	seenMu := &sync.Mutex{}
-	seen := map[uuid.UUID]struct{}{}
+	seen := map[UniqueUUID]struct{}{}
 
 	mpool := newErrPool(errPoolOpts{concurrency: a.concurrency})
 
 	a.lock.RLock()
 	for _, id := range matches {
-		eval, err := a.kv.Get(*id)
+		eval, err := a.kv.Get(id.Value())
 		if err != nil {
 			continue
 		}
@@ -349,8 +348,8 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 
 // AggregateMatch attempts to match incoming data to all PredicateTrees, resulting in a selection
 // of parts of an expression that have matched.
-func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any) ([]*uuid.UUID, error) {
-	result := []*uuid.UUID{}
+func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any) ([]UniqueUUID, error) {
+	result := []UniqueUUID{}
 
 	a.lock.RLock()
 	defer a.lock.RUnlock()
@@ -377,7 +376,7 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 	// Validate that groups meet the minimum size.
 	for evalID, groups := range found.Result {
 		for groupID, matchingCount := range groups {
-			requiredSize := int(groupID.Size()) // The total req size from the group ID
+			requiredSize := int(groupID.Value().Size()) // The total req size from the group ID
 
 			// If this group isn't the required size, delete the group
 			// from our map
@@ -398,7 +397,7 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 		_, isMixedOrs := a.mixed[evalID]
 
 		if hasMatchedGroups || isMixedOrs {
-			result = append(result, &evalID)
+			result = append(result, evalID)
 		}
 	}
 
@@ -471,7 +470,7 @@ func (a *aggregator[T]) Add(ctx context.Context, eval T) (float64, error) {
 }
 
 func (a *aggregator[T]) Remove(ctx context.Context, eval T) error {
-	if err := a.kv.Remove(eval.GetID()); err != nil {
+	if err := a.kv.Remove(eval.GetID().Value()); err != nil {
 		return err
 	}
 

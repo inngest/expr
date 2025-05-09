@@ -3,6 +3,7 @@ package expr
 import (
 	"context"
 	"testing"
+	"unique"
 
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/uuid"
@@ -22,7 +23,7 @@ func TestEngineNumber(t *testing.T) {
 			Literal:  int64(123),
 			Operator: operators.Equals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	b := ExpressionPart{
 		Predicate: &Predicate{
@@ -30,7 +31,7 @@ func TestEngineNumber(t *testing.T) {
 			Literal:  float64(1.131),
 			Operator: operators.Equals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	c := ExpressionPart{
 		Predicate: &Predicate{
@@ -38,7 +39,7 @@ func TestEngineNumber(t *testing.T) {
 			Literal:  25,
 			Operator: operators.GreaterEquals,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	d := ExpressionPart{
 		Predicate: &Predicate{
@@ -46,7 +47,7 @@ func TestEngineNumber(t *testing.T) {
 			Literal:  9999,
 			Operator: operators.Greater,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 	e := ExpressionPart{
 		Predicate: &Predicate{
@@ -54,7 +55,7 @@ func TestEngineNumber(t *testing.T) {
 			Literal:  -100,
 			Operator: operators.Less,
 		},
-		Parsed: &ParsedExpression{EvaluableID: uuid.New()},
+		Parsed: &ParsedExpression{EvaluableID: unique.Make(uuid.New())},
 	}
 
 	t.Run("It adds numbers", func(t *testing.T) {

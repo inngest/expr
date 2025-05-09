@@ -75,7 +75,7 @@ func (p *EvalKV[T]) Set(eval T) error {
 	if err != nil {
 		return err
 	}
-	id := eval.GetID()
+	id := eval.GetID().Value()
 	err = p.db.Set(id[:], byt, &pebble.WriteOptions{
 		Sync: false,
 	})

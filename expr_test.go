@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unique"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
@@ -58,7 +59,7 @@ func (e *evalLoader) Load(ctx context.Context, evalID ...uuid.UUID) ([]Evaluable
 func (e *evalLoader) AddEval(eval Evaluable) Evaluable {
 	e.l.Lock()
 	defer e.l.Unlock()
-	e.d[eval.GetID()] = eval
+	e.d[eval.GetID().Value()] = eval
 	return eval
 }
 
@@ -66,7 +67,7 @@ func (e *evalLoader) AddStr(expr string) Evaluable {
 	e.l.Lock()
 	defer e.l.Unlock()
 	eval := tex(expr)
-	e.d[eval.GetID()] = eval
+	e.d[eval.GetID().Value()] = eval
 	return eval
 }
 
@@ -1282,9 +1283,9 @@ type testEvaluable struct {
 }
 
 func (e testEvaluable) GetExpression() string { return e.Expr }
-func (e testEvaluable) GetID() uuid.UUID {
+func (e testEvaluable) GetID() UniqueUUID {
 	// deterministic IDs based off of expressions in testing.
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.Expr+e.ID))
+	return unique.Make(uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.Expr+e.ID)))
 }
 
 func testBoolEvaluator(ctx context.Context, e Evaluable, input map[string]any) (bool, error) {

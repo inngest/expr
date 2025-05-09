@@ -146,7 +146,8 @@ func (n *stringLookup) equalitySearch(ctx context.Context, variable string, inpu
 			// The variables don't match.
 			continue
 		}
-		if part.GroupID.Flag() != OptimizeNone {
+
+		if part.GroupID.Value().Flag() != OptimizeNone {
 			neqOptimized = true
 		}
 		result.Add(part.EvaluableID, part.GroupID)
@@ -179,7 +180,7 @@ func (n *stringLookup) inequalitySearch(ctx context.Context, variable string, in
 
 		for _, expr := range exprs {
 			res := result.GroupMatches(expr.EvaluableID, expr.GroupID)
-			if int8(res) < int8(expr.GroupID.Flag()) {
+			if int8(res) < int8(expr.GroupID.Value().Flag()) {
 				continue
 			}
 			result.AddExprs(expr)

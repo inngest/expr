@@ -8,7 +8,7 @@ import (
 
 func TestGroupID(t *testing.T) {
 	for i := uint16(0); i < 128; i++ {
-		gid := newGroupID(i, 0x0)
+		gid := newGroupID(i, 0x0).Value()
 
 		require.NotEmpty(t, gid[2:])
 		require.Equal(t, i, gid.Size())

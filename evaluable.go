@@ -1,6 +1,12 @@
 package expr
 
-import "github.com/google/uuid"
+import (
+	"unique"
+
+	"github.com/google/uuid"
+)
+
+type UniqueUUID = unique.Handle[uuid.UUID]
 
 // Evaluable represents an evaluable expression with a unique identifier.
 type Evaluable interface {
@@ -10,7 +16,7 @@ type Evaluable interface {
 	//
 	// It has the Get prefix to reduce collisions with implementations who expose an
 	// ID member.
-	GetID() uuid.UUID
+	GetID() UniqueUUID
 
 	// GetExpression returns an expression as a raw string.
 	//
@@ -23,8 +29,9 @@ type Evaluable interface {
 // ephemeral expressions that have no lifetime.
 type StringExpression string
 
-func (s StringExpression) GetID() uuid.UUID {
+func (s StringExpression) GetID() unique.Handle[uuid.UUID] {
 	// deterministic IDs based off of expressions in testing.
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(s))
+	return unique.Make(uuid.NewSHA1(uuid.NameSpaceOID, []byte(s)))
 }
+
 func (s StringExpression) GetExpression() string { return string(s) }

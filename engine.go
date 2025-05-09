@@ -3,6 +3,7 @@ package expr
 import (
 	"context"
 	"sync"
+	"unique"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/google/uuid"
@@ -21,7 +22,7 @@ const (
 
 func NewMatchResult() *MatchResult {
 	return &MatchResult{
-		Result: map[uuid.UUID]map[groupID]int{},
+		Result: map[UniqueUUID]map[uGroupID]int{},
 		Lock:   &sync.Mutex{},
 	}
 }
@@ -29,7 +30,7 @@ func NewMatchResult() *MatchResult {
 // MatchResult is a map of evaluable IDs to the groups found, and the number of elements
 // found matching that group.
 type MatchResult struct {
-	Result map[uuid.UUID]map[groupID]int
+	Result map[UniqueUUID]map[uGroupID]int
 	Lock   *sync.Mutex
 }
 
@@ -40,11 +41,11 @@ func (m *MatchResult) Len() int {
 }
 
 // AddExprs increments the matched counter for the given eval's group ID
-func (m *MatchResult) Add(evalID uuid.UUID, gID groupID) {
+func (m *MatchResult) Add(evalID unique.Handle[uuid.UUID], gID unique.Handle[groupID]) {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 	if _, ok := m.Result[evalID]; !ok {
-		m.Result[evalID] = map[groupID]int{}
+		m.Result[evalID] = map[uGroupID]int{}
 	}
 	m.Result[evalID][gID]++
 }
@@ -55,14 +56,14 @@ func (m *MatchResult) AddExprs(exprs ...*StoredExpressionPart) {
 	defer m.Lock.Unlock()
 	for _, expr := range exprs {
 		if _, ok := m.Result[expr.EvaluableID]; !ok {
-			m.Result[expr.EvaluableID] = map[groupID]int{}
+			m.Result[expr.EvaluableID] = map[uGroupID]int{}
 		}
 		m.Result[expr.EvaluableID][expr.GroupID]++
 	}
 }
 
 // GroupMatches returns the total lenght of all matches for a given eval's group ID.
-func (m *MatchResult) GroupMatches(evalID uuid.UUID, gID groupID) int {
+func (m *MatchResult) GroupMatches(evalID UniqueUUID, gID uGroupID) int {
 	m.Lock.Lock()
 	defer m.Lock.Unlock()
 	if _, ok := m.Result[evalID]; !ok {
@@ -129,7 +130,7 @@ type ExpressionPart struct {
 	// are shared amongst each predicate within an expression.
 	//
 	// This lets us determine whether the entire group has been matched.
-	GroupID   groupID
+	GroupID   uGroupID
 	Predicate *Predicate
 	Parsed    *ParsedExpression
 }
@@ -156,7 +157,7 @@ func (p ExpressionPart) Equals(n ExpressionPart) bool {
 }
 
 func (p ExpressionPart) ToStored() *StoredExpressionPart {
-	var id uuid.UUID
+	var id unique.Handle[uuid.UUID]
 	if p.Parsed != nil {
 		id = p.Parsed.EvaluableID
 	}
@@ -172,8 +173,8 @@ func (p ExpressionPart) ToStored() *StoredExpressionPart {
 // StoredExpressionPart is a lightweight expression part which only stores
 // a hash of the predicate to reduce memory usage.
 type StoredExpressionPart struct {
-	EvaluableID uuid.UUID
-	GroupID     groupID
+	EvaluableID unique.Handle[uuid.UUID]
+	GroupID     uGroupID
 	PredicateID uint64
 	Ident       *string
 }
