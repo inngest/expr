@@ -1200,6 +1200,59 @@ func TestMixedEngines(t *testing.T) {
 	})
 }
 
+func TestInMacro(t *testing.T) {
+	t.Run("string comparisons, where literal is string and var is array", func(t *testing.T) {
+		ctx := t.Context()
+
+		e := newTestEvaluator()
+
+		ex := tex(`"abc" in event.data.ids`)
+		_, err := e.Add(ctx, ex)
+		require.NoError(t, err)
+
+		// As this is a string equality match, this should be a fast expression.
+		require.EqualValues(t, 1, e.FastLen())
+		require.EqualValues(t, 0, e.SlowLen())
+
+		t.Run("matching", func(t *testing.T) {
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ids": []any{"a", "b", "c", "abc", 1},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, evalCount)
+			require.Equal(t, 1, len(found))
+			require.Equal(t, ex, found[0])
+		})
+
+		t.Run("not matching", func(t *testing.T) {
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ids": []string{"a", "b", "c"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 0, evalCount)
+			require.Equal(t, 0, len(found))
+		})
+	})
+}
+
+// newTestEvaluator
+func newTestEvaluator() AggregateEvaluator[testEvaluable] {
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+	return NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+	})
+}
+
 // func BenchmarkNonCachingEvaluate1_000(b *testing.B) { benchEval(1_000, EnvParser(newEnv()), b) }
 func benchEval(i int, p CELCompiler, b *testing.B) {
 	for n := 0; n < b.N; n++ {
