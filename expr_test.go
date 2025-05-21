@@ -845,7 +845,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 1, e.FastLen())
 	})
 
-	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
+	t.Run("neq", func(t *testing.T) {
 		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
@@ -854,40 +854,47 @@ func TestAddRemove(t *testing.T) {
 
 		ok, err := e.Add(ctx, tex(`event.data.foo != "no"`))
 		require.NoError(t, err)
+		require.Equal(t, ok, float64(1))
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
+		require.Equal(t, 0, e.MixedLen())
+	})
+
+	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
+		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+			Parser:      parser,
+			Eval:        testBoolEvaluator,
+			Concurrency: 0,
+		})
+
+		ok, err := e.Add(ctx, tex(`event.data.foo >= "no"`))
+		require.NoError(t, err)
 		require.Equal(t, ok, float64(0))
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
-		require.Equal(t, 0, e.MixedLen())
-
-		// Add the same expression again.
-		ok, err = e.Add(ctx, tex(`event.data.foo >= "no"`))
-		require.NoError(t, err)
-		require.Equal(t, ok, float64(0))
-		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
 		// Add a new expression
 		ok, err = e.Add(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
 		require.Equal(t, ok, float64(0))
-		require.Equal(t, 3, e.Len())
-		require.Equal(t, 3, e.SlowLen())
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
 		// And remove.
 		err = e.Remove(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
-		require.Equal(t, 2, e.SlowLen())
-		require.Equal(t, 2, e.Len())
+		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 1, e.Len())
 		require.Equal(t, 0, e.FastLen())
 
 		// And yeet out another non-existent expression
 		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
 		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 	})
 
