@@ -1271,6 +1271,34 @@ func TestInMacro(t *testing.T) {
 			require.Equal(t, ex, found[0])
 		})
 	})
+
+	t.Run("number as literal", func(t *testing.T) {
+		ctx := t.Context()
+
+		e := newTestEvaluator()
+
+		ex := tex(`3.50 in event.data.amounts`)
+		_, err := e.Add(ctx, ex)
+		require.NoError(t, err)
+
+		// As this is a string equality match, this should be a fast expression.
+		require.EqualValues(t, 0, e.FastLen())
+		require.EqualValues(t, 1, e.SlowLen())
+	})
+
+	t.Run("array as literal", func(t *testing.T) {
+		ctx := t.Context()
+
+		e := newTestEvaluator()
+
+		ex := tex(`event.data.id in ["abc", "def"]`)
+		_, err := e.Add(ctx, ex)
+		require.NoError(t, err)
+
+		// As this is a string equality match, this should be a fast expression.
+		require.EqualValues(t, 0, e.FastLen())
+		require.EqualValues(t, 1, e.SlowLen())
+	})
 }
 
 // newTestEvaluator

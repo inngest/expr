@@ -636,7 +636,7 @@ func engineType(p Predicate) EngineType {
 	// btrees, texts require ARTs, and so on.
 	switch v := p.Literal.(type) {
 	case int, int64, float64:
-		if p.Operator == operators.NotEquals {
+		if p.Operator == operators.NotEquals || p.Operator == operators.In {
 			return EngineTypeNone
 		}
 		// return EngineTypeNone
