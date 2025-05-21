@@ -845,7 +845,7 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 1, e.FastLen())
 	})
 
-	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
+	t.Run("neq", func(t *testing.T) {
 		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
@@ -854,40 +854,47 @@ func TestAddRemove(t *testing.T) {
 
 		ok, err := e.Add(ctx, tex(`event.data.foo != "no"`))
 		require.NoError(t, err)
+		require.Equal(t, ok, float64(1))
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
+		require.Equal(t, 0, e.MixedLen())
+	})
+
+	t.Run("With a non-aggregateable expression due to inequality/GTE on strings", func(t *testing.T) {
+		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+			Parser:      parser,
+			Eval:        testBoolEvaluator,
+			Concurrency: 0,
+		})
+
+		ok, err := e.Add(ctx, tex(`event.data.foo >= "no"`))
+		require.NoError(t, err)
 		require.Equal(t, ok, float64(0))
 		require.Equal(t, 1, e.Len())
 		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
-		require.Equal(t, 0, e.MixedLen())
-
-		// Add the same expression again.
-		ok, err = e.Add(ctx, tex(`event.data.foo >= "no"`))
-		require.NoError(t, err)
-		require.Equal(t, ok, float64(0))
-		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
 		// Add a new expression
 		ok, err = e.Add(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
 		require.Equal(t, ok, float64(0))
-		require.Equal(t, 3, e.Len())
-		require.Equal(t, 3, e.SlowLen())
+		require.Equal(t, 2, e.Len())
+		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
 		// And remove.
 		err = e.Remove(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
-		require.Equal(t, 2, e.SlowLen())
-		require.Equal(t, 2, e.Len())
+		require.Equal(t, 1, e.SlowLen())
+		require.Equal(t, 1, e.Len())
 		require.Equal(t, 0, e.FastLen())
 
 		// And yeet out another non-existent expression
 		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
 		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.SlowLen())
+		require.Equal(t, 1, e.Len())
+		require.Equal(t, 1, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 	})
 
@@ -1197,6 +1204,82 @@ func TestMixedEngines(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualValues(t, 0, len(eval))
 		require.EqualValues(t, 0, count)
+	})
+}
+
+func TestInMacro(t *testing.T) {
+	t.Run("string comparisons, where literal is string and var is array", func(t *testing.T) {
+		ctx := t.Context()
+
+		e := newTestEvaluator()
+
+		ex := tex(`"abc" in event.data.ids`)
+		_, err := e.Add(ctx, ex)
+		require.NoError(t, err)
+
+		// As this is a string equality match, this should be a fast expression.
+		require.EqualValues(t, 1, e.FastLen())
+		require.EqualValues(t, 0, e.SlowLen())
+
+		t.Run("matching", func(t *testing.T) {
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ids": []any{"a", "b", "c", 1, false, "abc"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, evalCount)
+			require.Equal(t, 1, len(found))
+			require.Equal(t, ex, found[0])
+		})
+
+		t.Run("not matching", func(t *testing.T) {
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"ids": []string{"a", "b", "c"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 0, evalCount)
+			require.Equal(t, 0, len(found))
+		})
+
+		t.Run("compound", func(t *testing.T) {
+			ex := tex(`event.data.status == "ok" && "order_xyz" in event.data.ids`)
+			_, err := e.Add(ctx, ex)
+			require.NoError(t, err)
+
+			// As this is a string equality match, this should be a fast expression.
+			require.EqualValues(t, 2, e.FastLen())
+			require.EqualValues(t, 0, e.SlowLen())
+
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"status": "ok",
+						"ids":    []any{"order_abc", "order_xyz"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, evalCount)
+			require.Equal(t, 1, len(found))
+			require.Equal(t, ex, found[0])
+		})
+	})
+}
+
+// newTestEvaluator
+func newTestEvaluator() AggregateEvaluator[testEvaluable] {
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+	return NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
 	})
 }
 
