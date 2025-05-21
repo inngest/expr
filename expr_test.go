@@ -1225,7 +1225,7 @@ func TestInMacro(t *testing.T) {
 			found, evalCount, err := e.Evaluate(ctx, map[string]any{
 				"event": map[string]any{
 					"data": map[string]any{
-						"ids": []any{"a", "b", "c", "abc", 1},
+						"ids": []any{"a", "b", "c", 1, false, "abc"},
 					},
 				},
 			})
@@ -1246,6 +1246,29 @@ func TestInMacro(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 0, evalCount)
 			require.Equal(t, 0, len(found))
+		})
+
+		t.Run("compound", func(t *testing.T) {
+			ex := tex(`event.data.status == "ok" && "order_xyz" in event.data.ids`)
+			_, err := e.Add(ctx, ex)
+			require.NoError(t, err)
+
+			// As this is a string equality match, this should be a fast expression.
+			require.EqualValues(t, 2, e.FastLen())
+			require.EqualValues(t, 0, e.SlowLen())
+
+			found, evalCount, err := e.Evaluate(ctx, map[string]any{
+				"event": map[string]any{
+					"data": map[string]any{
+						"status": "ok",
+						"ids":    []any{"order_abc", "order_xyz"},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, evalCount)
+			require.Equal(t, 1, len(found))
+			require.Equal(t, ex, found[0])
 		})
 	})
 }
