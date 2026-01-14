@@ -11,7 +11,7 @@ import (
 
 func TestEngineStringmap(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
+	s := newStringEqualityMatcher().(*stringLookup)
 
 	gid := newGroupID(3, 2) // optimized to 2 == matches.
 	exp := &ParsedExpression{
@@ -92,8 +92,18 @@ func TestEngineStringmap(t *testing.T) {
 		require.Equal(t, 2, result.Len())
 
 		// As this only has two results, this should be easy. Contain just A and B.
-		require.Contains(t, result.Result, a.Parsed.EvaluableID)
-		require.Contains(t, result.Result, b.Parsed.EvaluableID)
+		foundA := false
+		foundB := false
+		for key := range result.Result {
+			if key.evalID == a.Parsed.EvaluableID {
+				foundA = true
+			}
+			if key.evalID == b.Parsed.EvaluableID {
+				foundB = true
+			}
+		}
+		require.True(t, foundA, "expected to find expression A")
+		require.True(t, foundB, "expected to find expression B")
 
 		t.Run("It handles variable names", func(t *testing.T) {
 			result = NewMatchResult()
@@ -122,7 +132,14 @@ func TestEngineStringmap(t *testing.T) {
 			}, result)
 			require.NoError(t, err)
 			require.Equal(t, 1, result.Len())
-			require.Contains(t, result.Result, e.Parsed.EvaluableID)
+			foundE := false
+			for key := range result.Result {
+				if key.evalID == e.Parsed.EvaluableID {
+					foundE = true
+					break
+				}
+			}
+			require.True(t, foundE, "expected to find expression e")
 		})
 
 		t.Run("second case: neq-1", func(t *testing.T) {
@@ -134,7 +151,14 @@ func TestEngineStringmap(t *testing.T) {
 			}, result)
 			require.NoError(t, err)
 			require.Equal(t, 1, result.Len())
-			require.Contains(t, result.Result, d.Parsed.EvaluableID)
+			foundD := false
+			for key := range result.Result {
+				if key.evalID == d.Parsed.EvaluableID {
+					foundD = true
+					break
+				}
+			}
+			require.True(t, foundD, "expected to find expression d")
 		})
 
 		t.Run("third case: both", func(t *testing.T) {
@@ -182,7 +206,8 @@ func TestEngineStringmap(t *testing.T) {
 		// enough group IDs to match.
 		require.Equal(t, 3, result.Len())
 
-		require.Equal(t, 1, result.Result[exp.EvaluableID][gid])
+		key := matchKey{evalID: exp.EvaluableID, groupID: gid}
+		require.Equal(t, 1, result.Result[key])
 		require.Equal(t, int8(3), int8(gid.Size()))
 	})
 
@@ -201,15 +226,18 @@ func TestEngineStringmap(t *testing.T) {
 
 		// We only have 3 expressions, but all should have each group ID matching.
 		require.Equal(t, 3, result.Len())
-		require.Equal(t, 3, result.Result[exp.EvaluableID][gid]) //  3 parts to this expr
-		require.Equal(t, 1, result.Result[e.Parsed.EvaluableID][e.GroupID])
-		require.Equal(t, 1, result.Result[b.Parsed.EvaluableID][b.GroupID])
+		expKey := matchKey{evalID: exp.EvaluableID, groupID: gid}
+		require.Equal(t, 3, result.Result[expKey]) //  3 parts to this expr
+		eKey := matchKey{evalID: e.Parsed.EvaluableID, groupID: e.GroupID}
+		require.Equal(t, 1, result.Result[eKey])
+		bKey := matchKey{evalID: b.Parsed.EvaluableID, groupID: b.GroupID}
+		require.Equal(t, 1, result.Result[bKey])
 	})
 }
 
 func TestEngineStringmap_DuplicateValues(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
+	s := newStringEqualityMatcher().(*stringLookup)
 	a := ExpressionPart{
 		Predicate: &Predicate{
 			Ident:    "async.data.var_a",
@@ -237,7 +265,7 @@ func TestEngineStringmap_DuplicateValues(t *testing.T) {
 
 func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	ctx := context.Background()
-	s := newStringEqualityMatcher(testConcurrency).(*stringLookup)
+	s := newStringEqualityMatcher().(*stringLookup)
 	a := ExpressionPart{
 		Predicate: &Predicate{
 			Ident:    "async.data.var_a",
@@ -283,5 +311,12 @@ func TestEngineStringmap_DuplicateNeq(t *testing.T) {
 	require.Equal(t, 2, result.Len())
 
 	// Never matches B, as B isn't complete.
-	require.NotContains(t, result.Result, b.Parsed.EvaluableID)
+	foundB := false
+	for key := range result.Result {
+		if key.evalID == b.Parsed.EvaluableID {
+			foundB = true
+			break
+		}
+	}
+	require.False(t, foundB, "expression B should not be found")
 }

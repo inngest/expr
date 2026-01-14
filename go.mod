@@ -3,6 +3,7 @@ module github.com/inngest/expr
 go 1.24
 
 require (
+	github.com/RoaringBitmap/roaring v1.9.4
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/google/cel-go v0.18.2
@@ -17,7 +18,6 @@ require (
 
 require (
 	github.com/DataDog/zstd v1.4.5 // indirect
-	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.12.0 // indirect

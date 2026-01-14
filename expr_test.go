@@ -14,6 +14,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -746,6 +747,7 @@ func TestAddRemove(t *testing.T) {
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
+			GCThreshold: 1, // Run GC immediately after any deletion
 		})
 
 		firstExpr := tex(`event.data.foo == "yes"`, "first-id")
@@ -781,9 +783,11 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.Greater(t, ok, float64(0))
 
-			require.Equal(t, 1, e.Len())
-			require.Equal(t, 0, e.SlowLen())
-			require.Equal(t, 1, e.FastLen())
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Equal(t, 1, e.Len())
+				assert.Equal(t, 0, e.SlowLen())
+				assert.Equal(t, 1, e.FastLen())
+			}, 300*time.Millisecond, 10*time.Millisecond)
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -822,9 +826,11 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.Greater(t, ok, float64(0))
 
-			require.Equal(t, 1, e.Len()) // The first expr is remaining.
-			require.Equal(t, 0, e.SlowLen())
-			require.Equal(t, 1, e.FastLen())
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Equal(t, 1, e.Len())
+				assert.Equal(t, 0, e.SlowLen())
+				assert.Equal(t, 1, e.FastLen())
+			}, 300*time.Millisecond, 10*time.Millisecond)
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -837,12 +843,10 @@ func TestAddRemove(t *testing.T) {
 			require.EqualValues(t, 0, count)
 		})
 
-		// And yeet a non-existent aggregateable expr.
-		err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
-		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 1, e.FastLen())
+		// NOTE: With async GC, Remove() no longer returns an error for non-existent items
+		// It just marks the ID as deleted, and GC handles cleanup
+		// err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
+		// require.Error(t, ErrEvaluableNotFound, err)
 	})
 
 	t.Run("neq", func(t *testing.T) {
@@ -866,6 +870,7 @@ func TestAddRemove(t *testing.T) {
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
+			GCThreshold: 1, // Run GC immediately after any deletion
 		})
 
 		ok, err := e.Add(ctx, tex(`event.data.foo >= "no"`))
@@ -883,19 +888,16 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
-		// And remove.
 		err = e.Remove(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
-		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.FastLen())
 
-		// And yeet out another non-existent expression
-		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
-		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 1, e.SlowLen())
+			assert.Equal(t, 1, e.Len())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
+
+		// NOTE: With async GC, Remove() no longer returns an error for non-existent items
 	})
 
 	t.Run("Partial aggregates", func(t *testing.T) {
@@ -953,6 +955,7 @@ func TestEmptyExpressions(t *testing.T) {
 		Parser:      parser,
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
+		GCThreshold: 1, // Run GC immediately after any deletion
 	})
 
 	empty := tex(``, "id-1")
@@ -982,9 +985,11 @@ func TestEmptyExpressions(t *testing.T) {
 	t.Run("Removing an empty expression succeeds", func(t *testing.T) {
 		err := e.Remove(ctx, empty)
 		require.NoError(t, err)
-		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 0, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 	})
 }
 
@@ -997,6 +1002,7 @@ func TestEvaluate_Null(t *testing.T) {
 		Parser:      parser,
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
+		GCThreshold: 1, // Run GC immediately after any deletion
 	})
 	notNull := tex(`event.ts != null`, "id-1")
 	isNull := tex(`event.ts == null`, "id-2")
@@ -1045,9 +1051,11 @@ func TestEvaluate_Null(t *testing.T) {
 		err := e.Remove(ctx, notNull)
 		require.NoError(t, err)
 
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 1, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 1, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 1, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 
 		// We should still match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
@@ -1065,9 +1073,12 @@ func TestEvaluate_Null(t *testing.T) {
 
 		err = e.Remove(ctx, isNull)
 		require.NoError(t, err)
-		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 0, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 
 		// We should no longer match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
