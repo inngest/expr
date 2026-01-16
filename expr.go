@@ -62,7 +62,7 @@ type AggregateEvaluator[T Evaluable] interface {
 	Evaluate(ctx context.Context, data map[string]any) ([]T, int32, error)
 
 	// AggregateMatch returns all expression parts which are evaluable given the input data.
-	AggregateMatch(ctx context.Context, data map[string]any) ([]*uuid.UUID, error)
+	AggregateMatch(ctx context.Context, data map[string]any) ([]uuid.UUID, error)
 
 	// Len returns the total number of aggregateable and constantly matched expressions
 	// stored in the evaluator.
@@ -365,11 +365,11 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 	a.lock.RLock()
 	for _, id := range matches {
 		// Skip deleted items
-		if _, deleted := a.deleted.Load(*id); deleted {
+		if _, deleted := a.deleted.Load(id); deleted {
 			continue
 		}
 
-		eval, err := a.kv.Get(*id)
+		eval, err := a.kv.Get(id)
 		if err != nil {
 			continue
 		}
@@ -421,8 +421,8 @@ func (a *aggregator[T]) Evaluate(ctx context.Context, data map[string]any) ([]T,
 
 // AggregateMatch attempts to match incoming data to all PredicateTrees, resulting in a selection
 // of parts of an expression that have matched.
-func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any) ([]*uuid.UUID, error) {
-	result := []*uuid.UUID{}
+func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any) ([]uuid.UUID, error) {
+	var result []uuid.UUID
 
 	a.lock.RLock()
 	defer a.lock.RUnlock()
@@ -436,6 +436,7 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 	//
 	// Note that we break this down per evaluable ID (UUID)
 	found := NewMatchResult()
+	defer found.Release()
 
 	for _, engine := range a.engines {
 		// we explicitly ignore the deny path for now.
@@ -446,39 +447,15 @@ func (a *aggregator[T]) AggregateMatch(ctx context.Context, data map[string]any)
 
 	a.log.Log(ctx, slog.Level(-8), "ran matching engines", "len_matched_no_filter", found.Len())
 
-	// Validate groups directly on flat map - track which evalIDs have valid groups
-	validEvals := make(map[uuid.UUID]bool)
-	seenEvalIDs := make(map[uuid.UUID]bool)
-
-	for key, matchingCount := range found.Result {
-		// Skip deleted items (tombstone check)
+	for key, count := range found.Result {
 		if _, deleted := a.deleted.Load(key.evalID); deleted {
 			continue
 		}
 
-		seenEvalIDs[key.evalID] = true
-
-		requiredSize := int(key.groupID.Size())
-		// If this group meets the required size, mark evalID as valid
-		if matchingCount >= requiredSize {
-			validEvals[key.evalID] = true
+		_, isMixed := a.mixed[key.evalID]
+		if count >= int(key.groupID.Size()) || isMixed {
+			result = append(result, key.evalID)
 		}
-	}
-
-	// NOTE: We currently don't add items with OR predicates to the
-	// matching engine, so we cannot use group sizes if the expr part
-	// has an OR. Only check mixed for evalIDs that appeared in results.
-	for evalID := range seenEvalIDs {
-		if _, isMixedOrs := a.mixed[evalID]; isMixedOrs {
-			validEvals[evalID] = true
-		}
-	}
-
-	// Convert to result slice
-	result = make([]*uuid.UUID, 0, len(validEvals))
-	for evalID := range validEvals {
-		id := evalID
-		result = append(result, &id)
 	}
 
 	a.log.Log(ctx, slog.Level(-8), "filtered invalid groups", "len_matched", len(result))

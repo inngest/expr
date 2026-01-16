@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testConcurrency = 100
-
 func TestEngineNumber(t *testing.T) {
 	ctx := context.Background()
 	n := newNumberMatcher().(*numbers)
