@@ -1093,6 +1093,97 @@ func TestEvaluate_Null(t *testing.T) {
 			require.EqualValues(t, 0, count)
 		})
 	})
+}
+
+func TestRemoveNull_AggregateMatch_NoGhost(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+
+	notNull := tex(`event.ts != null`, "null-ghost-1")
+
+	ok, err := e.Add(ctx, notNull)
+	require.NoError(t, err)
+	require.Greater(t, ok, float64(0))
+
+	// Verify it matches before removal
+	matched, err := e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"ts": 12345},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, len(matched))
+
+	// Remove and wait for GC to complete
+	err = e.Remove(ctx, notNull)
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.FastLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+
+	// After GC, AggregateMatch must not return the removed expression.
+	// This catches the case where engine parts are left behind but a.deleted is cleared.
+	matched, err = e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"ts": 12345},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, len(matched), "removed null expression should not appear in AggregateMatch after GC")
+}
+
+func TestRemoveNumber_AggregateMatch_NoGhost(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+
+	numExpr := tex(`event.data.amount >= 100`, "num-ghost-1")
+
+	ok, err := e.Add(ctx, numExpr)
+	require.NoError(t, err)
+	require.Greater(t, ok, float64(0))
+
+	// Verify it matches before removal
+	matched, err := e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"amount": 200}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, len(matched))
+
+	// Remove and wait for GC to complete
+	err = e.Remove(ctx, numExpr)
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.FastLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+
+	// After GC, AggregateMatch must not return the removed expression.
+	matched, err = e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"amount": 200}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, len(matched), "removed number expression should not appear in AggregateMatch after GC")
+}
+
+func TestEvaluate_Null_Continued(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
 
 	t.Run("Two idents aren't treated as nulls", func(t *testing.T) {
 		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{

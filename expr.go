@@ -594,7 +594,7 @@ func (a *aggregator[T]) GC(ctx context.Context) bool {
 	})
 
 	parseStart := time.Now()
-	stringParts := []ExpressionPart{}
+	partsByEngine := map[EngineType][]ExpressionPart{}
 	// Track which IDs are ready for cleanup and their metadata
 	idCleanupInfo := make(map[uuid.UUID]gcEvalInfo[T])
 
@@ -624,12 +624,12 @@ func (a *aggregator[T]) GC(ctx context.Context) bool {
 			continue
 		}
 
-		// Collect string parts for this ID
-		startIdx := len(stringParts)
+		// Collect parts for this ID across all engine types
+		startIdx := len(partsByEngine[EngineTypeStringHash])
 		for _, g := range parsed.RootGroups() {
-			a.collectPartsForRemoval(g, parsed, &stringParts)
+			a.collectPartsForRemoval(g, parsed, partsByEngine)
 		}
-		endIdx := len(stringParts)
+		endIdx := len(partsByEngine[EngineTypeStringHash])
 
 		stats := &exprAggregateStats{}
 		for _, g := range parsed.RootGroups() {
@@ -642,12 +642,25 @@ func (a *aggregator[T]) GC(ctx context.Context) bool {
 			parsed:        parsed,
 			stats:         stats,
 			stringPartEnd: endIdx,
-			skipEngine:    startIdx == endIdx, // no string parts
+			skipEngine:    startIdx == endIdx,
 		}
 	}
 	parseDuration := time.Since(parseStart)
 
-	// Remove from engine with timeout
+	// Remove null and number engine parts first (small and fast, no timeout needed)
+	for _, et := range []EngineType{EngineTypeNullMatch, EngineTypeBTree} {
+		if parts := partsByEngine[et]; len(parts) > 0 {
+			if engine, ok := a.engines[et]; ok {
+				count, err := engine.Remove(context.Background(), parts)
+				if err != nil {
+					a.log.Warn("error removing pause from aggregator", "error", err, "processed_count", count)
+				}
+			}
+		}
+	}
+
+	// Remove string engine parts with timeout (can be large)
+	stringParts := partsByEngine[EngineTypeStringHash]
 	processedPartsCount := len(stringParts)
 	removeDuration := time.Duration(0)
 	if len(stringParts) > 0 {
@@ -729,7 +742,7 @@ func (a *aggregator[T]) GC(ctx context.Context) bool {
 	// Delete from deleted map and KV
 	for _, id := range successfulIDs {
 		a.deleted.Delete(id)
-		a.kv.Remove(id)
+		_ = a.kv.Remove(id)
 	}
 	cleanupDuration := time.Since(cleanupStart)
 
@@ -747,7 +760,7 @@ func (a *aggregator[T]) GC(ctx context.Context) bool {
 	return true
 }
 
-func (a *aggregator[T]) collectPartsForRemoval(node *Node, parsed *ParsedExpression, stringParts *[]ExpressionPart) {
+func (a *aggregator[T]) collectPartsForRemoval(node *Node, parsed *ParsedExpression, partsByEngine map[EngineType][]ExpressionPart) {
 	all := node.Ands
 	if node.Predicate != nil && isAggregateable(node) {
 		all = append(node.Ands, node)
@@ -757,13 +770,15 @@ func (a *aggregator[T]) collectPartsForRemoval(node *Node, parsed *ParsedExpress
 		if n.Predicate == nil {
 			continue
 		}
-		if engineType(*n.Predicate) == EngineTypeStringHash {
-			*stringParts = append(*stringParts, ExpressionPart{
-				GroupID:   n.GroupID,
-				Predicate: n.Predicate,
-				Parsed:    parsed,
-			})
+		et := engineType(*n.Predicate)
+		if et == EngineTypeNone {
+			continue
 		}
+		partsByEngine[et] = append(partsByEngine[et], ExpressionPart{
+			GroupID:   n.GroupID,
+			Predicate: n.Predicate,
+			Parsed:    parsed,
+		})
 	}
 }
 
@@ -793,6 +808,9 @@ func (a *aggregator[T]) iterGroupStats(ctx context.Context, node *Node) (exprAgg
 	}
 
 	for _, n := range all {
+		if n.Predicate == nil {
+			continue
+		}
 		if engineType(*n.Predicate) == EngineTypeNone {
 			stats.AddSlow()
 		} else {
