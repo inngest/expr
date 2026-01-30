@@ -855,11 +855,6 @@ func TestAddRemove(t *testing.T) {
 			require.Empty(t, eval)
 			require.EqualValues(t, 0, count)
 		})
-
-		// NOTE: With async GC, Remove() no longer returns an error for non-existent items
-		// It just marks the ID as deleted, and GC handles cleanup
-		// err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
-		// require.Error(t, ErrEvaluableNotFound, err)
 	})
 
 	t.Run("neq", func(t *testing.T) {
@@ -912,7 +907,6 @@ func TestAddRemove(t *testing.T) {
 			assert.Equal(t, 0, e.FastLen())
 		}, 300*time.Millisecond, 10*time.Millisecond)
 
-		// NOTE: With async GC, Remove() no longer returns an error for non-existent items
 	})
 
 	t.Run("Partial aggregates", func(t *testing.T) {

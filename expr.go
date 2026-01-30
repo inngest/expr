@@ -79,7 +79,7 @@ type AggregateEvaluator[T Evaluable] interface {
 	SlowLen() int
 
 	// Close stops background goroutines and releases resources
-	Close() error
+	Close()
 
 	// PendingDeletes returns the number of soft-deleted items awaiting GC
 	PendingDeletes() int
@@ -284,9 +284,8 @@ func (a *aggregator[T]) SlowLen() int {
 	return len(a.constants)
 }
 
-func (a *aggregator[T]) Close() error {
+func (a *aggregator[T]) Close() {
 	close(a.stopGC)
-	return nil
 }
 
 func (a *aggregator[T]) PendingDeletes() int {
