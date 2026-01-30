@@ -60,7 +60,7 @@ func NewInlineVariable(name string, definition *Ast) *InlineVariable {
 // If the variable occurs more than once, the provided alias will be used to replace the expressions
 // where the variable name occurs.
 func NewInlineVariableWithAlias(name, alias string, definition *Ast) *InlineVariable {
-	return &InlineVariable{name: name, alias: alias, def: definition.NativeRep()}
+	return &InlineVariable{name: name, alias: alias, def: definition.impl}
 }
 
 // NewInliningOptimizer creates and optimizer which replaces variables with expression definitions.
@@ -88,7 +88,7 @@ func (opt *inliningOptimizer) Optimize(ctx *OptimizerContext, a *ast.AST) *ast.A
 		if len(matches) == 1 || !isBindable(matches, inlineVar.Expr(), inlineVar.Type()) {
 			for _, match := range matches {
 				// Copy the inlined AST expr and source info.
-				copyExpr := ctx.CopyASTAndMetadata(inlineVar.def)
+				copyExpr := copyASTAndMetadata(ctx, inlineVar.def)
 				opt.inlineExpr(ctx, match, copyExpr, inlineVar.Type())
 			}
 			continue
@@ -121,13 +121,24 @@ func (opt *inliningOptimizer) Optimize(ctx *OptimizerContext, a *ast.AST) *ast.A
 		}
 
 		// Copy the inlined AST expr and source info.
-		copyExpr := ctx.CopyASTAndMetadata(inlineVar.def)
+		copyExpr := copyASTAndMetadata(ctx, inlineVar.def)
 		// Update the least common ancestor by inserting a cel.bind() call to the alias.
 		inlined, bindMacro := ctx.NewBindMacro(lca.ID(), inlineVar.Alias(), copyExpr, lca)
 		opt.inlineExpr(ctx, lca, inlined, inlineVar.Type())
-		ctx.SetMacroCall(lca.ID(), bindMacro)
+		ctx.sourceInfo.SetMacroCall(lca.ID(), bindMacro)
 	}
 	return a
+}
+
+// copyASTAndMetadata copies the input AST and propagates the macro metadata into the AST being
+// optimized.
+func copyASTAndMetadata(ctx *OptimizerContext, a *ast.AST) ast.Expr {
+	copyExpr, copyInfo := ctx.CopyAST(a)
+	// Add in the macro calls from the inlined AST
+	for id, call := range copyInfo.MacroCalls() {
+		ctx.sourceInfo.SetMacroCall(id, call)
+	}
+	return copyExpr
 }
 
 // inlineExpr replaces the current expression with the inlined one, unless the location of the inlining
@@ -157,11 +168,11 @@ func (opt *inliningOptimizer) rewritePresenceExpr(ctx *OptimizerContext, prev, i
 	if inlined.Kind() == ast.SelectKind {
 		presenceTest, hasMacro := ctx.NewHasMacro(prev.ID(), inlined)
 		ctx.UpdateExpr(prev, presenceTest)
-		ctx.SetMacroCall(prev.ID(), hasMacro)
+		ctx.sourceInfo.SetMacroCall(prev.ID(), hasMacro)
 		return
 	}
 
-	ctx.ClearMacroCall(prev.ID())
+	ctx.sourceInfo.ClearMacroCall(prev.ID())
 	if inlinedType.IsAssignableType(NullType) {
 		ctx.UpdateExpr(prev,
 			ctx.NewCall(operators.NotEquals,
@@ -190,7 +201,8 @@ func (opt *inliningOptimizer) rewritePresenceExpr(ctx *OptimizerContext, prev, i
 // in most cases.
 func isBindable(matches []ast.NavigableExpr, inlined ast.Expr, inlinedType *Type) bool {
 	if inlinedType.IsAssignableType(NullType) ||
-		inlinedType.HasTrait(traits.SizerType) {
+		inlinedType.HasTrait(traits.SizerType) ||
+		inlinedType.HasTrait(traits.FieldTesterType) {
 		return true
 	}
 	for _, m := range matches {

@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"strings"
 
 	"github.com/google/cel-go/common/types/ref"
 
@@ -69,7 +68,7 @@ func (b Bool) ConvertToNative(typeDesc reflect.Type) (any, error) {
 		case boolWrapperType:
 			// Convert the bool to a wrapperspb.BoolValue.
 			return wrapperspb.Bool(bool(b)), nil
-		case JSONValueType:
+		case jsonValueType:
 			// Return the bool as a new structpb.Value.
 			return structpb.NewBoolValue(bool(b)), nil
 		default:
@@ -127,14 +126,6 @@ func (b Bool) Type() ref.Type {
 // Value implements the ref.Val interface method.
 func (b Bool) Value() any {
 	return bool(b)
-}
-
-func (b Bool) format(sb *strings.Builder) {
-	if b {
-		sb.WriteString("true")
-	} else {
-		sb.WriteString("false")
-	}
 }
 
 // IsBool returns whether the input ref.Val or ref.Type is equal to BoolType.

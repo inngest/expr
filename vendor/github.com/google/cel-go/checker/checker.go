@@ -19,8 +19,6 @@ package checker
 import (
 	"fmt"
 	"reflect"
-	"slices"
-	"strings"
 
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/ast"
@@ -67,10 +65,6 @@ func Check(parsed *ast.AST, source common.Source, env *Env) (*ast.AST, *common.E
 	for id, t := range c.TypeMap() {
 		c.SetType(id, substitute(c.mappings, t, true))
 	}
-	// Remove source info for IDs without a corresponding AST node. This can happen because
-	// check() deletes some nodes while rewriting the AST. For example the Select operand is
-	// deleted when a variable reference is replaced with a Ident expression.
-	c.AST.ClearUnusedIDs()
 	return c.AST, errs
 }
 
@@ -110,15 +104,11 @@ func (c *checker) check(e ast.Expr) {
 func (c *checker) checkIdent(e ast.Expr) {
 	identName := e.AsIdent()
 	// Check to see if the identifier is declared.
-	if ident := c.env.resolveSimpleIdent(identName); ident != nil {
-		name := strings.TrimPrefix(ident.Name(), ".")
-		if ident.requiresDisambiguation {
-			name = "." + name
-		}
+	if ident := c.env.LookupIdent(identName); ident != nil {
 		c.setType(e, ident.Type())
-		c.setReference(e, ast.NewIdentReference(name, ident.Value()))
+		c.setReference(e, ast.NewIdentReference(ident.Name(), ident.Value()))
 		// Overwrite the identifier with its fully qualified name.
-		e.SetKindCase(c.NewIdent(e.ID(), name))
+		e.SetKindCase(c.NewIdent(e.ID(), ident.Name()))
 		return
 	}
 
@@ -129,22 +119,18 @@ func (c *checker) checkIdent(e ast.Expr) {
 func (c *checker) checkSelect(e ast.Expr) {
 	sel := e.AsSelect()
 	// Before traversing down the tree, try to interpret as qualified name.
-	qualifiers, found := c.computeQualifiers(e)
+	qname, found := containers.ToQualifiedName(e)
 	if found {
-		ident := c.env.resolveQualifiedIdent(qualifiers...)
+		ident := c.env.LookupIdent(qname)
 		if ident != nil {
 			// We don't check for a TestOnly expression here since the `found` result is
 			// always going to be false for TestOnly expressions.
 
 			// Rewrite the node to be a variable reference to the resolved fully-qualified
 			// variable name.
-			name := ident.Name()
-			if ident.requiresDisambiguation {
-				name = "." + name
-			}
 			c.setType(e, ident.Type())
-			c.setReference(e, ast.NewIdentReference(name, ident.Value()))
-			e.SetKindCase(c.NewIdent(e.ID(), name))
+			c.setReference(e, ast.NewIdentReference(ident.Name(), ident.Value()))
+			e.SetKindCase(c.NewIdent(e.ID(), ident.Name()))
 			return
 		}
 	}
@@ -156,43 +142,9 @@ func (c *checker) checkSelect(e ast.Expr) {
 	c.setType(e, substitute(c.mappings, resultType, false))
 }
 
-// computeQualifiers computes the qualified names parts of a select expression.
-func (c *checker) computeQualifiers(e ast.Expr) ([]string, bool) {
-	var qualifiers []string
-	for e.Kind() == ast.SelectKind {
-		sel := e.AsSelect()
-		// test only expressions are not considered for qualified name selection.
-		if sel.IsTestOnly() {
-			return qualifiers, false
-		}
-		// otherwise append the select field name to the qualifier list (reverse order)
-		qualifiers = append(qualifiers, sel.FieldName())
-		e = sel.Operand()
-		// If the next operand is an identifier, then append it, reverse the name sequence
-		// and return it to the caller.s
-		if e.Kind() == ast.IdentKind {
-			qualifiers = append(qualifiers, e.AsIdent())
-			slices.Reverse(qualifiers)
-			return qualifiers, true
-		}
-	}
-	return qualifiers, false
-}
-
 func (c *checker) checkOptSelect(e ast.Expr) {
 	// Collect metadata related to the opt select call packaged by the parser.
 	call := e.AsCall()
-	if len(call.Args()) != 2 || call.IsMemberFunction() {
-		t := ""
-		if call.IsMemberFunction() {
-			t = " member call with"
-		}
-		c.errors.notAnOptionalFieldSelectionCall(e.ID(), c.location(e),
-			fmt.Sprintf(
-				"incorrect signature.%s argument count: %d", t, len(call.Args())))
-		return
-	}
-
 	operand := call.Args()[0]
 	field := call.Args()[1]
 	fieldName, isString := maybeUnwrapString(field)
@@ -271,7 +223,7 @@ func (c *checker) checkCall(e ast.Expr) {
 	// Regular static call with simple name.
 	if !call.IsMemberFunction() {
 		// Check for the existence of the function.
-		fn := c.env.lookupFunction(fnName)
+		fn := c.env.LookupFunction(fnName)
 		if fn == nil {
 			c.errors.undeclaredReference(e.ID(), c.location(e), c.env.container.Name(), fnName)
 			c.setType(e, types.ErrorType)
@@ -293,7 +245,7 @@ func (c *checker) checkCall(e ast.Expr) {
 	qualifiedPrefix, maybeQualified := containers.ToQualifiedName(target)
 	if maybeQualified {
 		maybeQualifiedName := qualifiedPrefix + "." + fnName
-		fn := c.env.lookupFunction(maybeQualifiedName)
+		fn := c.env.LookupFunction(maybeQualifiedName)
 		if fn != nil {
 			// The function name is namespaced and so preserving the target operand would
 			// be an inaccurate representation of the desired evaluation behavior.
@@ -306,7 +258,7 @@ func (c *checker) checkCall(e ast.Expr) {
 
 	// Regular instance call.
 	c.check(target)
-	fn := c.env.lookupFunction(fnName)
+	fn := c.env.LookupFunction(fnName)
 	// Function found, attempt overload resolution.
 	if fn != nil {
 		c.resolveOverloadOrError(e, fn, target, args)
@@ -478,7 +430,7 @@ func (c *checker) checkCreateStruct(e ast.Expr) {
 	msgVal := e.AsStruct()
 	// Determine the type of the message.
 	resultType := types.ErrorType
-	ident := c.env.resolveTypeIdent(msgVal.TypeName())
+	ident := c.env.LookupIdent(msgVal.TypeName())
 	if ident == nil {
 		c.errors.undeclaredReference(
 			e.ID(), c.location(e), c.env.container.Name(), msgVal.TypeName())
@@ -544,32 +496,16 @@ func (c *checker) checkComprehension(e ast.Expr) {
 	comp := e.AsComprehension()
 	c.check(comp.IterRange())
 	c.check(comp.AccuInit())
-	rangeType := substitute(c.mappings, c.getType(comp.IterRange()), false)
-
-	// Create a scope for the comprehension since it has a local accumulation variable.
-	// This scope will contain the accumulation variable used to compute the result.
 	accuType := c.getType(comp.AccuInit())
-	c.env = c.env.enterScope()
-	c.env.AddIdents(decls.NewVariable(comp.AccuVar(), accuType))
+	rangeType := substitute(c.mappings, c.getType(comp.IterRange()), false)
+	var varType *types.Type
 
-	var varType, var2Type *types.Type
 	switch rangeType.Kind() {
 	case types.ListKind:
-		// varType represents the list element type for one-variable comprehensions.
 		varType = rangeType.Parameters()[0]
-		if comp.HasIterVar2() {
-			// varType represents the list index (int) for two-variable comprehensions,
-			// and var2Type represents the list element type.
-			var2Type = varType
-			varType = types.IntType
-		}
 	case types.MapKind:
-		// varType represents the map entry key for all comprehension types.
+		// Ranges over the keys.
 		varType = rangeType.Parameters()[0]
-		if comp.HasIterVar2() {
-			// var2Type represents the map entry value for two-variable comprehensions.
-			var2Type = rangeType.Parameters()[1]
-		}
 	case types.DynKind, types.ErrorKind, types.TypeParamKind:
 		// Set the range type to DYN to prevent assignment to a potentially incorrect type
 		// at a later point in type-checking. The isAssignable call will update the type
@@ -577,23 +513,18 @@ func (c *checker) checkComprehension(e ast.Expr) {
 		c.isAssignable(types.DynType, rangeType)
 		// Set the range iteration variable to type DYN as well.
 		varType = types.DynType
-		if comp.HasIterVar2() {
-			var2Type = types.DynType
-		}
 	default:
 		c.errors.notAComprehensionRange(comp.IterRange().ID(), c.location(comp.IterRange()), rangeType)
 		varType = types.ErrorType
-		if comp.HasIterVar2() {
-			var2Type = types.ErrorType
-		}
 	}
 
+	// Create a scope for the comprehension since it has a local accumulation variable.
+	// This scope will contain the accumulation variable used to compute the result.
+	c.env = c.env.enterScope()
+	c.env.AddIdents(decls.NewVariable(comp.AccuVar(), accuType))
 	// Create a block scope for the loop.
 	c.env = c.env.enterScope()
 	c.env.AddIdents(decls.NewVariable(comp.IterVar(), varType))
-	if comp.HasIterVar2() {
-		c.env.AddIdents(decls.NewVariable(comp.IterVar2(), var2Type))
-	}
 	// Check the variable references in the condition and step.
 	c.check(comp.LoopCondition())
 	c.assertType(comp.LoopCondition(), types.BoolType)

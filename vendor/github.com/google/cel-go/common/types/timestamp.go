@@ -91,7 +91,7 @@ func (t Timestamp) ConvertToNative(typeDesc reflect.Type) (any, error) {
 	case anyValueType:
 		// Pack the underlying time as a tpb.Timestamp into an Any value.
 		return anypb.New(tpb.New(t.Time))
-	case JSONValueType:
+	case jsonValueType:
 		// CEL follows the proto3 to JSON conversion which formats as an RFC 3339 encoded JSON
 		// string.
 		v := t.ConvertToType(StringType)
@@ -177,10 +177,6 @@ func (t Timestamp) Type() ref.Type {
 // Value implements ref.Val.Value.
 func (t Timestamp) Value() any {
 	return t.Time
-}
-
-func (t Timestamp) format(sb *strings.Builder) {
-	fmt.Fprintf(sb, `timestamp("%s")`, t.Time.UTC().Format(time.RFC3339Nano))
 }
 
 var (
