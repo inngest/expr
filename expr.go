@@ -821,19 +821,6 @@ func (a *aggregator[T]) iterGroupStats(ctx context.Context, node *Node) (exprAgg
 	return *stats, nil
 }
 
-func (a *aggregator[T]) removeConstantEvaluable(_ context.Context, eval Evaluable) error {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-
-	// Find the index of the evaluable in constants and yank out.
-	if _, ok := a.constants[eval.GetID()]; !ok {
-		return ErrEvaluableNotFound
-	}
-
-	delete(a.constants, eval.GetID())
-	return nil
-}
-
 // gcEvalInfo tracks metadata for evaluables being garbage collected
 type gcEvalInfo[T Evaluable] struct {
 	eval          T
