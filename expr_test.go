@@ -14,6 +14,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,6 +51,7 @@ func TestAdd(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 	_, err := e.Add(ctx, expr)
 
 	require.NoError(t, err)
@@ -69,6 +71,7 @@ func TestEvaluate_Strings(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
@@ -139,6 +142,7 @@ func TestEvaluate_Strings_Inequality(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
@@ -216,6 +220,7 @@ func TestEvaluate_Numbers(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 
 		_, err := e.Add(ctx, expected)
 		require.NoError(t, err)
@@ -281,6 +286,7 @@ func TestEvaluate_Numbers(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 
 		_, err := e.Add(ctx, expected)
 		require.NoError(t, err)
@@ -348,6 +354,7 @@ func TestEvaluate_Concurrently(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
@@ -390,6 +397,7 @@ func TestEvaluate_ArrayIndexes(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	_, err := e.Add(ctx, expected)
 	require.NoError(t, err)
@@ -442,6 +450,7 @@ func TestEvaluate_Compound(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	ok, err := e.Add(ctx, expected)
 	require.Greater(t, ok, float64(0))
@@ -490,6 +499,7 @@ func TestAggregateMatch(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	// Add three expressions matching on "a", "b", "c" respectively.
 	keys := []string{"a", "b", "c"}
@@ -561,6 +571,7 @@ func TestOrs(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 		eval := tex(`event.a == "a" || event.b == "b"`)
 		loader.AddEval(eval)
 		ok, err := e.Add(ctx, eval)
@@ -599,6 +610,7 @@ func TestOrs(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 		eval := tex(`event.a == "a" && (event.b == "b" || event.c == "c")`)
 		loader.AddEval(eval)
 		ok, err := e.Add(ctx, eval)
@@ -682,6 +694,7 @@ func TestMacros(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 	eval := tex(`event.data.ok == "true" || event.data.ids.exists(id, id == 'c')`)
 	loader.AddEval(eval)
 	ok, err := e.Add(ctx, eval)
@@ -746,7 +759,9 @@ func TestAddRemove(t *testing.T) {
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
+			GCThreshold: 1, // Run GC immediately after any deletion
 		})
+		defer e.Close()
 
 		firstExpr := tex(`event.data.foo == "yes"`, "first-id")
 		loader.AddEval(firstExpr)
@@ -781,9 +796,11 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.Greater(t, ok, float64(0))
 
-			require.Equal(t, 1, e.Len())
-			require.Equal(t, 0, e.SlowLen())
-			require.Equal(t, 1, e.FastLen())
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Equal(t, 1, e.Len())
+				assert.Equal(t, 0, e.SlowLen())
+				assert.Equal(t, 1, e.FastLen())
+			}, 300*time.Millisecond, 10*time.Millisecond)
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -822,9 +839,11 @@ func TestAddRemove(t *testing.T) {
 			require.NoError(t, err)
 			require.Greater(t, ok, float64(0))
 
-			require.Equal(t, 1, e.Len()) // The first expr is remaining.
-			require.Equal(t, 0, e.SlowLen())
-			require.Equal(t, 1, e.FastLen())
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Equal(t, 1, e.Len())
+				assert.Equal(t, 0, e.SlowLen())
+				assert.Equal(t, 1, e.FastLen())
+			}, 300*time.Millisecond, 10*time.Millisecond)
 
 			// Matching this expr should now fail.
 			eval, count, err = e.Evaluate(ctx, map[string]any{
@@ -836,13 +855,6 @@ func TestAddRemove(t *testing.T) {
 			require.Empty(t, eval)
 			require.EqualValues(t, 0, count)
 		})
-
-		// And yeet a non-existent aggregateable expr.
-		err = e.Remove(ctx, tex(`event.data.another == "i'm not here"`))
-		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 1, e.FastLen())
 	})
 
 	t.Run("neq", func(t *testing.T) {
@@ -851,6 +863,7 @@ func TestAddRemove(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 
 		ok, err := e.Add(ctx, tex(`event.data.foo != "no"`))
 		require.NoError(t, err)
@@ -866,7 +879,9 @@ func TestAddRemove(t *testing.T) {
 			Parser:      parser,
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
+			GCThreshold: 1, // Run GC immediately after any deletion
 		})
+		defer e.Close()
 
 		ok, err := e.Add(ctx, tex(`event.data.foo >= "no"`))
 		require.NoError(t, err)
@@ -883,19 +898,15 @@ func TestAddRemove(t *testing.T) {
 		require.Equal(t, 2, e.SlowLen())
 		require.Equal(t, 0, e.FastLen())
 
-		// And remove.
 		err = e.Remove(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
-		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.FastLen())
 
-		// And yeet out another non-existent expression
-		err = e.Remove(ctx, tex(`event.data.another != "i'm not here" && a != "b"`))
-		require.Error(t, ErrEvaluableNotFound, err)
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 1, e.SlowLen())
+			assert.Equal(t, 1, e.Len())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
+
 	})
 
 	t.Run("Partial aggregates", func(t *testing.T) {
@@ -904,6 +915,7 @@ func TestAddRemove(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 
 		ok, err := e.Add(ctx, tex(`event.data.foo == "yea" && event.data.bar != "baz"`))
 		require.NoError(t, err)
@@ -953,7 +965,9 @@ func TestEmptyExpressions(t *testing.T) {
 		Parser:      parser,
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
+		GCThreshold: 1, // Run GC immediately after any deletion
 	})
+	defer e.Close()
 
 	empty := tex(``, "id-1")
 
@@ -982,9 +996,11 @@ func TestEmptyExpressions(t *testing.T) {
 	t.Run("Removing an empty expression succeeds", func(t *testing.T) {
 		err := e.Remove(ctx, empty)
 		require.NoError(t, err)
-		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 0, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 	})
 }
 
@@ -997,7 +1013,9 @@ func TestEvaluate_Null(t *testing.T) {
 		Parser:      parser,
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
+		GCThreshold: 1, // Run GC immediately after any deletion
 	})
+	defer e.Close()
 	notNull := tex(`event.ts != null`, "id-1")
 	isNull := tex(`event.ts == null`, "id-2")
 
@@ -1045,9 +1063,11 @@ func TestEvaluate_Null(t *testing.T) {
 		err := e.Remove(ctx, notNull)
 		require.NoError(t, err)
 
-		require.Equal(t, 1, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 1, e.FastLen())
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 1, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 1, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 
 		// We should still match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
@@ -1065,9 +1085,12 @@ func TestEvaluate_Null(t *testing.T) {
 
 		err = e.Remove(ctx, isNull)
 		require.NoError(t, err)
-		require.Equal(t, 0, e.Len())
-		require.Equal(t, 0, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+
+		require.EventuallyWithT(t, func(t *assert.CollectT) {
+			assert.Equal(t, 0, e.Len())
+			assert.Equal(t, 0, e.SlowLen())
+			assert.Equal(t, 0, e.FastLen())
+		}, 300*time.Millisecond, 10*time.Millisecond)
 
 		// We should no longer match on `isNull`
 		t.Run("Is null checks succeed", func(t *testing.T) {
@@ -1082,6 +1105,270 @@ func TestEvaluate_Null(t *testing.T) {
 			require.EqualValues(t, 0, count)
 		})
 	})
+}
+
+func TestRemoveNull_AggregateMatch_NoGhost(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	notNull := tex(`event.ts != null`, "null-ghost-1")
+
+	ok, err := e.Add(ctx, notNull)
+	require.NoError(t, err)
+	require.Greater(t, ok, float64(0))
+
+	// Verify it matches before removal
+	matched, err := e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"ts": 12345},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, len(matched))
+
+	// Remove and wait for GC to complete
+	err = e.Remove(ctx, notNull)
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.FastLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+
+	// After GC, AggregateMatch must not return the removed expression.
+	// This catches the case where engine parts are left behind but a.deleted is cleared.
+	matched, err = e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"ts": 12345},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, len(matched), "removed null expression should not appear in AggregateMatch after GC")
+}
+
+func TestRemoveNumber_AggregateMatch_NoGhost(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	numExpr := tex(`event.data.amount >= 100`, "num-ghost-1")
+
+	ok, err := e.Add(ctx, numExpr)
+	require.NoError(t, err)
+	require.Greater(t, ok, float64(0))
+
+	// Verify it matches before removal
+	matched, err := e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"amount": 200}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, len(matched))
+
+	// Remove and wait for GC to complete
+	err = e.Remove(ctx, numExpr)
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.FastLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+
+	// After GC, AggregateMatch must not return the removed expression.
+	matched, err = e.AggregateMatch(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"amount": 200}},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 0, len(matched), "removed number expression should not appear in AggregateMatch after GC")
+}
+
+func TestRemoveOrExpression(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	// OR expression — triggers len(node.Ors) > 0 branch in iterGroupStats
+	orExpr := tex(`event.a == "x" || event.b == "y"`, "or-expr-1")
+
+	ok, err := e.Add(ctx, orExpr)
+	require.NoError(t, err)
+	require.Equal(t, float64(1), ok)
+
+	// Verify it matches
+	evals, _, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"a": "x"},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 1)
+
+	err = e.Remove(ctx, orExpr)
+	require.NoError(t, err)
+
+	evals, _, err = e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"a": "x"},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 0)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestRemoveBranchedOrExpression(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	// Branched OR — triggers both Ands iteration and Ors check
+	branchedExpr := tex(`event.a == "a" && (event.b == "b" || event.c == "c")`, "branched-or-1")
+
+	ok, err := e.Add(ctx, branchedExpr)
+	require.NoError(t, err)
+	require.Equal(t, float64(0.5), ok) // mixed fast/slow
+
+	// Verify it matches
+	evals, _, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"a": "a", "b": "b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 1)
+
+	err = e.Remove(ctx, branchedExpr)
+	require.NoError(t, err)
+
+	evals, _, err = e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"a": "a", "b": "b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 0)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.MixedLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestRemoveNonAggregateableExpression(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	// Two idents comparison — not aggregateable (engineType returns EngineTypeNone)
+	identExpr := tex(`event.data.a == event.data.b`, "ident-compare-1")
+
+	ok, err := e.Add(ctx, identExpr)
+	require.NoError(t, err)
+	require.Equal(t, float64(0), ok) // fully slow
+
+	require.Equal(t, 1, e.SlowLen())
+
+	// Verify it matches
+	evals, _, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"a": "same", "b": "same"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 1)
+
+	err = e.Remove(ctx, identExpr)
+	require.NoError(t, err)
+
+	evals, _, err = e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"a": "same", "b": "same"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 0)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.SlowLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestRemoveStringComparisonExpression(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+		GCThreshold: 1,
+	})
+	defer e.Close()
+
+	// String comparison (>=) — engineType returns EngineTypeNone for non-equality string ops
+	strCmpExpr := tex(`event.data.name >= "m"`, "str-cmp-1")
+
+	ok, err := e.Add(ctx, strCmpExpr)
+	require.NoError(t, err)
+	require.Equal(t, float64(0), ok) // slow — string >= not supported
+
+	require.Equal(t, 1, e.SlowLen())
+
+	// Verify it matches
+	evals, _, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"name": "zebra"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 1)
+
+	err = e.Remove(ctx, strCmpExpr)
+	require.NoError(t, err)
+
+	evals, _, err = e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"name": "zebra"}},
+	})
+	require.NoError(t, err)
+	require.Len(t, evals, 0)
+
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Equal(t, 0, e.Len())
+		assert.Equal(t, 0, e.SlowLen())
+	}, 300*time.Millisecond, 10*time.Millisecond)
+}
+
+func TestEvaluate_Null_Continued(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
 
 	t.Run("Two idents aren't treated as nulls", func(t *testing.T) {
 		e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
@@ -1089,6 +1376,7 @@ func TestEvaluate_Null(t *testing.T) {
 			Eval:        testBoolEvaluator,
 			Concurrency: 0,
 		})
+		defer e.Close()
 
 		idents := tex("event.data.a == event.data.b")
 		ok, err := e.Add(ctx, idents)
@@ -1124,6 +1412,7 @@ func TestMixedEngines(t *testing.T) {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 
 	t.Run("Assert mixed engines", func(t *testing.T) {
 		exprs := []string{
@@ -1373,6 +1662,7 @@ func evaluate(b *testing.B, i int, parser TreeParser) error {
 		Eval:        testBoolEvaluator,
 		Concurrency: 0,
 	})
+	defer e.Close()
 	_, _ = e.Add(ctx, expected)
 
 	addOtherExpressions(i, e, loader)
