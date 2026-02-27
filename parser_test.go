@@ -117,6 +117,42 @@ func TestParse(t *testing.T) {
 		assert(t, tests)
 	})
 
+	t.Run("It does not panic on non-literal array index", func(t *testing.T) {
+		// Non-literal array indices (e.g. event.data.idx instead of 0)
+		// should not cause a nil pointer dereference in parseArrayAccess.
+
+		t.Run("via callToPredicate", func(t *testing.T) {
+			// event.data.items[event.data.idx] is a CallKind with a non-literal
+			// index arg.  parseArrayAccess returns "" and callToPredicate returns
+			// nil, so the expression is skipped entirely.
+			p, err := newParser()
+			require.NoError(t, err)
+			p.(*parser).rander = rander
+
+			eval := tex(`event.data.items[event.data.idx] == "a"`)
+			result, err := p.Parse(ctx, eval)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Nil(t, result.Root.Predicate)
+			require.Empty(t, result.Root.Ands)
+		})
+
+		t.Run("via walkSelect", func(t *testing.T) {
+			// event.data.items[event.data.idx].name has a SelectKind on top
+			// (.name), so callToPredicate calls walkSelect, which in turn calls
+			// parseArrayAccess.  The non-literal index returns "" from
+			// parseArrayAccess, producing a degraded ident, but no panic.
+			p, err := newParser()
+			require.NoError(t, err)
+			p.(*parser).rander = rander
+
+			eval := tex(`event.data.items[event.data.idx].name == "a"`)
+			result, err := p.Parse(ctx, eval)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+		})
+	})
+
 	t.Run("It handles ident matching", func(t *testing.T) {
 		ident := "vars.a"
 
