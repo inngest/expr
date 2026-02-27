@@ -811,6 +811,12 @@ func parseArrayAccess(item celast.Expr) string {
 		return ""
 	}
 	args := item.AsCall().Args()
+	if len(args) < 2 {
+		return ""
+	}
+	if args[1].Kind() != celast.LiteralKind {
+		return ""
+	}
 	return fmt.Sprintf("%s[%v]", walkSelect(args[0]), args[1].AsLiteral().Value())
 }
 
