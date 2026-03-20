@@ -58,6 +58,69 @@ func TestAdd(t *testing.T) {
 	require.Equal(t, 1, e.SlowLen())
 }
 
+func TestAdd_LiteralFalse(t *testing.T) {
+	ctx := context.Background()
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+	})
+	defer e.Close()
+
+	// Add a literal false expression
+	expr := tex(`false`)
+	_, err := e.Add(ctx, expr)
+	require.NoError(t, err)
+
+	// Literal false should not be added to any evaluation path
+	require.Equal(t, 0, e.Len())
+	require.Equal(t, 0, e.FastLen())
+	require.Equal(t, 0, e.MixedLen())
+	require.Equal(t, 0, e.SlowLen())
+
+	// Evaluating should return no matches
+	results, matched, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"foo": "bar"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(0), matched)
+	require.Len(t, results, 0)
+}
+
+func TestAdd_LiteralTrue(t *testing.T) {
+	ctx := context.Background()
+	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+	})
+	defer e.Close()
+
+	// Add a literal true expression
+	expr := tex(`true`)
+	_, err := e.Add(ctx, expr)
+	require.NoError(t, err)
+
+	// Literal true should be tracked but not in the slow path
+	require.Equal(t, 1, e.Len())
+	require.Equal(t, 0, e.FastLen())
+	require.Equal(t, 0, e.MixedLen())
+	require.Equal(t, 0, e.SlowLen())
+
+	// Evaluating should always match the literal true expression
+	results, matched, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{"data": map[string]any{"foo": "bar"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), matched)
+	require.Len(t, results, 1)
+	require.Equal(t, expr.GetExpression(), results[0].GetExpression())
+}
+
 func TestEvaluate_Strings(t *testing.T) {
 	ctx := context.Background()
 	parser := NewTreeParser(NewCachingCompiler(newEnv(), nil))
