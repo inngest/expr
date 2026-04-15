@@ -190,6 +190,14 @@ func TestLiftLiterals(t *testing.T) {
 				"b": "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv",
 			},
 		},
+		{
+			name:        "trailing escaped quote treated as literal backslash",
+			expr:        `event.data.id == "foo\"`,
+			expectedStr: `event.data.id == vars.a`,
+			expectedArgs: map[string]any{
+				"a": `foo\`,
+			},
+		},
 	}
 
 	for _, test := range tests {

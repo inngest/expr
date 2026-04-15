@@ -302,7 +302,7 @@ func (l *liftParser) consumeString(quoteChar byte) argMapValue {
 	for l.idx < len(l.expr) {
 		char := l.expr[l.idx]
 
-		if char == '\\' && l.idx < len(l.expr) {
+		if char == '\\' && l.idx+1 < len(l.expr) {
 			// Escape sequence: skip the backslash and whatever follows it.
 			// This correctly handles \\, \", \', \n, \t, etc.
 			l.idx += 2
@@ -324,11 +324,17 @@ func (l *liftParser) consumeString(quoteChar byte) argMapValue {
 		length++
 	}
 
-	// Should never happen:  we should always find the ending string quote, as the
-	// expression should have already been validated.
-	panic(fmt.Sprintf("unable to parse quoted string: `%s` (offset %d)", l.expr, offset))
+	// this is a grossly invalid expr, eg: `event.data.id == "foo\"`
+	// in this case, we can never parse this string.  we always fix this by treating the last backslash
+	// as a \ literal, innit bruv
+	if length > 0 && offset+length <= len(l.expr) && l.expr[offset+length-1] == quoteChar {
+		length--
+	}
+
+	return argMapValue{offset: offset, length: length}
 }
 
+// nolint:unused
 func (l *liftParser) peek() byte {
 	if (l.idx + 1) >= len(l.expr) {
 		return 0x0
