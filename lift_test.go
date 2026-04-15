@@ -173,6 +173,23 @@ func TestLiftLiterals(t *testing.T) {
 				"a": "test/yolo",
 			},
 		},
+		{
+			name:        "escaped backslash before closing quote",
+			expr:        `event.name == "foo\\"`,
+			expectedStr: "event.name == vars.a",
+			expectedArgs: map[string]any{
+				"a": `foo\\`,
+			},
+		},
+		{
+			name:        "escaped backslash before closing quote in compound expression",
+			expr:        `async.data.branch.playgroundId == "oqdqzbuppgbtrljtpbmyi\\" && "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv" == async.data.spaceID`,
+			expectedStr: `async.data.branch.playgroundId == vars.a && vars.b == async.data.spaceID`,
+			expectedArgs: map[string]any{
+				"a": `oqdqzbuppgbtrljtpbmyi\\`,
+				"b": "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv",
+			},
+		},
 	}
 
 	for _, test := range tests {
