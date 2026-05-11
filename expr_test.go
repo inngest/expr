@@ -948,26 +948,26 @@ func TestAddRemove(t *testing.T) {
 
 		ok, err := e.Add(ctx, tex(`event.data.foo >= "no"`))
 		require.NoError(t, err)
-		require.Equal(t, ok, float64(0))
+		require.Equal(t, ok, float64(1))
 		require.Equal(t, 1, e.Len())
-		require.Equal(t, 1, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 1, e.FastLen())
 
 		// Add a new expression
 		ok, err = e.Add(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
-		require.Equal(t, ok, float64(0))
+		require.Equal(t, ok, float64(1))
 		require.Equal(t, 2, e.Len())
-		require.Equal(t, 2, e.SlowLen())
-		require.Equal(t, 0, e.FastLen())
+		require.Equal(t, 0, e.SlowLen())
+		require.Equal(t, 2, e.FastLen())
 
 		err = e.Remove(ctx, tex(`event.data.another < "no"`))
 		require.NoError(t, err)
 
 		require.EventuallyWithT(t, func(t *assert.CollectT) {
-			assert.Equal(t, 1, e.SlowLen())
+			assert.Equal(t, 0, e.SlowLen())
 			assert.Equal(t, 1, e.Len())
-			assert.Equal(t, 0, e.FastLen())
+			assert.Equal(t, 1, e.FastLen())
 		}, 300*time.Millisecond, 10*time.Millisecond)
 
 	})
@@ -1397,14 +1397,15 @@ func TestRemoveStringComparisonExpression(t *testing.T) {
 	})
 	defer e.Close()
 
-	// String comparison (>=) — engineType returns EngineTypeNone for non-equality string ops
+	// String comparison (>=) — now aggregatable via btree engine
 	strCmpExpr := tex(`event.data.name >= "m"`, "str-cmp-1")
 
 	ok, err := e.Add(ctx, strCmpExpr)
 	require.NoError(t, err)
-	require.Equal(t, float64(0), ok) // slow — string >= not supported
+	require.Equal(t, float64(1), ok)
 
-	require.Equal(t, 1, e.SlowLen())
+	require.Equal(t, 1, e.FastLen())
+	require.Equal(t, 0, e.SlowLen())
 
 	// Verify it matches
 	evals, _, err := e.Evaluate(ctx, map[string]any{
