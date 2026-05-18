@@ -1019,6 +1019,51 @@ func TestAddRemove(t *testing.T) {
 	})
 }
 
+func TestDuplicateAdd(t *testing.T) {
+	ctx := context.Background()
+	parser, err := newParser()
+	require.NoError(t, err)
+
+	e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+		Parser:      parser,
+		Eval:        testBoolEvaluator,
+		Concurrency: 0,
+	})
+	defer e.Close()
+
+	expr := tex(`event.data.id == "abc" && event.data.window == 2.25`, "dedup-test")
+
+	_, err = e.Add(ctx, expr)
+	require.NoError(t, err)
+	_, err = e.Add(ctx, expr)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, e.FastLen())
+
+	_, evalCount, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{
+			"data": map[string]any{
+				"id":     "WRONG",
+				"window": 2.25,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(0), evalCount, "non-matching id must not reach CEL after duplicate Add")
+
+	found, evalCount, err := e.Evaluate(ctx, map[string]any{
+		"event": map[string]any{
+			"data": map[string]any{
+				"id":     "abc",
+				"window": 2.25,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), evalCount)
+	require.Len(t, found, 1)
+}
+
 func TestEmptyExpressions(t *testing.T) {
 	ctx := context.Background()
 	parser, err := newParser()
