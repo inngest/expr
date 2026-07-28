@@ -5,7 +5,7 @@ go 1.24
 require (
 	github.com/cespare/xxhash/v2 v2.2.0
 	github.com/cockroachdb/pebble/v2 v2.1.4
-	github.com/google/cel-go v0.27.0
+	github.com/google/cel-go v0.29.0
 	github.com/google/uuid v1.6.0
 	github.com/karlseguin/ccache/v2 v2.0.8
 	github.com/ohler55/ojg v1.21.0
@@ -47,6 +47,7 @@ require (
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
