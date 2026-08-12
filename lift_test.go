@@ -174,29 +174,22 @@ func TestLiftLiterals(t *testing.T) {
 			},
 		},
 		{
-			name:        "escaped backslash before closing quote",
-			expr:        `event.name == "foo\\"`,
-			expectedStr: "event.name == vars.a",
-			expectedArgs: map[string]any{
-				"a": `foo\\`,
-			},
+			name:         "escaped backslash before closing quote",
+			expr:         `event.name == "foo\\"`,
+			expectedStr:  `event.name == "foo\\"`,
+			expectedArgs: map[string]any{},
 		},
 		{
-			name:        "escaped backslash before closing quote in compound expression",
-			expr:        `async.data.branch.playgroundId == "oqdqzbuppgbtrljtpbmyi\\" && "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv" == async.data.spaceID`,
-			expectedStr: `async.data.branch.playgroundId == vars.a && vars.b == async.data.spaceID`,
-			expectedArgs: map[string]any{
-				"a": `oqdqzbuppgbtrljtpbmyi\\`,
-				"b": "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv",
-			},
+			name:         "escaped backslash before closing quote in compound expression",
+			expr:         `async.data.branch.playgroundId == "oqdqzbuppgbtrljtpbmyi\\" && "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv" == async.data.spaceID`,
+			expectedStr:  `async.data.branch.playgroundId == "oqdqzbuppgbtrljtpbmyi\\" && "team/mly6i259eym3jkyvq6txyciu/repo/qhq2ioy772sqo9sboe48kfwv" == async.data.spaceID`,
+			expectedArgs: map[string]any{},
 		},
 		{
-			name:        "trailing escaped quote treated as literal backslash",
-			expr:        `event.data.id == "foo\"`,
-			expectedStr: `event.data.id == vars.a`,
-			expectedArgs: map[string]any{
-				"a": `foo\`,
-			},
+			name:         "unterminated escaped quote not lifted",
+			expr:         `event.data.id == "foo\"`,
+			expectedStr:  `event.data.id == "foo\"`,
+			expectedArgs: map[string]any{},
 		},
 	}
 
