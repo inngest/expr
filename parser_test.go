@@ -1281,7 +1281,7 @@ func TestParsedCELAST(t *testing.T) {
 	require.Nil(t, iss)
 	require.NotNil(t, ast)
 	require.NotNil(t, args)
-	require.EqualValues(t, map[string]any{"a": `ok\" please`}, args.Map())
+	require.Empty(t, args.Map())
 
 	program, err := env.Program(
 		ast,
@@ -1293,7 +1293,7 @@ func TestParsedCELAST(t *testing.T) {
 		result, _, err := program.Eval(map[string]any{
 			"event": map[string]any{
 				"data": map[string]any{
-					"id": `ok\" please`,
+					"id": `ok" please`,
 				},
 			},
 			"vars": args.Map(),

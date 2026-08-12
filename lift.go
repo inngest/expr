@@ -42,6 +42,10 @@ func liftLiterals(expr string) (string, LiftedArgs) {
 		// expression.
 		return expr, nil
 	}
+	if strings.ContainsRune(expr, '\\') {
+		// CEL must decode and validate escape syntax before it can become a variable value.
+		return expr, regularArgMap{}
+	}
 
 	lp := liftParser{expr: expr}
 	return lp.lift()
@@ -302,14 +306,6 @@ func (l *liftParser) consumeString(quoteChar byte) argMapValue {
 	for l.idx < len(l.expr) {
 		char := l.expr[l.idx]
 
-		if char == '\\' && l.idx+1 < len(l.expr) {
-			// Escape sequence: skip the backslash and whatever follows it.
-			// This correctly handles \\, \", \', \n, \t, etc.
-			l.idx += 2
-			length += 2
-			continue
-		}
-
 		if char == quoteChar {
 			// Skip over the end quote.
 			l.idx++
@@ -322,13 +318,6 @@ func (l *liftParser) consumeString(quoteChar byte) argMapValue {
 
 		// Only now has the length of the inner quote increased.
 		length++
-	}
-
-	// this is a grossly invalid expr, eg: `event.data.id == "foo\"`
-	// in this case, we can never parse this string.  we always fix this by treating the last backslash
-	// as a \ literal, innit bruv
-	if length > 0 && offset+length <= len(l.expr) && l.expr[offset+length-1] == quoteChar {
-		length--
 	}
 
 	return argMapValue{offset: offset, length: length}

@@ -95,6 +95,56 @@ func TestCachingCompile(t *testing.T) {
 	})
 }
 
+func TestCachingCompile_StringEscapeSemantics(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		value      string
+	}{
+		{name: "single quote", expression: `event.value == 'it\'s'`, value: `it's`},
+		{name: "triple quote", expression: `event.value == """line\nbreak"""`, value: "line\nbreak"},
+		{name: "regex", expression: `event.value.matches("^prefix\\/suffix$")`, value: "prefix/suffix"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			env := newEnv()
+			input := map[string]any{
+				"event": map[string]any{"value": test.value},
+			}
+
+			directAST, directIssues := env.Compile(test.expression)
+			require.Nil(t, directIssues)
+			directProgram, err := env.Program(directAST)
+			require.NoError(t, err)
+			direct, _, err := directProgram.Eval(input)
+			require.NoError(t, err)
+			require.Equal(t, true, direct.Value())
+
+			cachedAST, cachedIssues, vars := NewCachingCompiler(env, nil).Compile(test.expression)
+			require.Nil(t, cachedIssues)
+			cachedProgram, err := env.Program(cachedAST)
+			require.NoError(t, err)
+			input[VarPrefix] = vars.Map()
+			cached, _, err := cachedProgram.Eval(input)
+			require.NoError(t, err)
+
+			require.Equal(t, direct.Value(), cached.Value())
+		})
+	}
+}
+
+func TestCachingCompile_InvalidStringEscape(t *testing.T) {
+	for _, expression := range []string{
+		`event.value == "bad\z"`,
+		`event.value == "trailing\`,
+	} {
+		_, issues, _ := NewCachingCompiler(newEnv(), nil).Compile(expression)
+		require.NotNil(t, issues)
+		require.Error(t, issues.Err())
+	}
+}
+
 func TestCachingCompile_IntegerLiteralDedup(t *testing.T) {
 	c := cachingCompiler{env: newEnv()}
 
