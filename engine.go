@@ -138,7 +138,11 @@ func (p ExpressionPart) Hash() uint64 {
 }
 
 func (p ExpressionPart) EqualsStored(n *StoredExpressionPart) bool {
-	if p.GroupID != n.GroupID {
+	var id uuid.UUID
+	if p.Parsed != nil {
+		id = p.Parsed.EvaluableID
+	}
+	if id != n.EvaluableID || p.GroupID != n.GroupID {
 		return false
 	}
 	return p.Hash() == n.PredicateID

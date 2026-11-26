@@ -2,12 +2,9 @@ package expr
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
-	"math/rand"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/google/cel-go/cel"
 	celast "github.com/google/cel-go/common/ast"
@@ -68,16 +65,9 @@ func NewTreeParser(ep CELCompiler) TreeParser {
 type parser struct {
 	ep CELCompiler
 
-	// rander is a random reader set during testing.  it is never used outside
-	// of the test package during Parse.  Instead,  a new deterministic random
-	// reader is generated from the Evaluable identifier.
+	// rander overrides group ID generation in tests. Otherwise Parse assigns
+	// a deterministic sequence of group numbers local to each expression.
 	rander RandomReader
-}
-
-var randPool = sync.Pool{
-	New: func() any {
-		return rand.New(rand.NewSource(0))
-	},
 }
 
 func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, error) {
@@ -94,19 +84,17 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 	}
 
 	r := p.rander
-	var pooled *rand.Rand
 	if r == nil {
-		// Create a new deterministic random reader based off of the evaluable's identifier.
-		// This means that every time we parse an expression with the given identifier, the
-		// group IDs will be deterministic as the randomness is sourced from the ID.
-		//
-		// We only overwrite this if rander is not nil so that we can inject rander during tests.
-		id := eval.GetID()
-		seed := int64(binary.NativeEndian.Uint64(id[:8]))
-		pooled = randPool.Get().(*rand.Rand)
-
-		pooled.Seed(seed)
-		r = pooled.Read
+		// Reproduce the same group IDs when GC reparses an expression. Group
+		// numbers are scoped to the evaluable UUID, not globally unique.
+		var group uint64
+		r = func(buf []byte) (int, error) {
+			group++
+			for i := range buf {
+				buf[i] = byte(group >> (8 * i))
+			}
+			return len(buf), nil
+		}
 	}
 
 	node := newNode()
@@ -118,9 +106,6 @@ func (p *parser) Parse(ctx context.Context, eval Evaluable) (*ParsedExpression, 
 		vars,
 		r,
 	)
-	if pooled != nil {
-		randPool.Put(pooled)
-	}
 	if err != nil {
 		return nil, err
 	}

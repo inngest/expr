@@ -1019,6 +1019,60 @@ func TestAddRemove(t *testing.T) {
 	})
 }
 
+func TestRemoveIdenticalExpressions(t *testing.T) {
+	tests := []struct {
+		name       string
+		expression string
+		data       map[string]any
+	}{
+		{"number", `event.data.n == 7`, map[string]any{"n": 7}},
+		{"string", `event.data.kind == "gold"`, map[string]any{"kind": "gold"}},
+		{"null", `event.data.kind == null`, map[string]any{"kind": nil}},
+		{"string range", `event.data.kind > "gold"`, map[string]any{"kind": "silver"}},
+		{"and", `event.data.n >= 9 && event.data.kind == "gold"`, map[string]any{"n": 10, "kind": "gold"}},
+		{"nested groups", `(event.data.n == 7 && event.data.kind == "gold") || (event.data.n == 9 && event.data.kind == "silver")`, map[string]any{"n": 9, "kind": "silver"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			parser, err := newParser()
+			require.NoError(t, err)
+			e := NewAggregateEvaluator(AggregateEvaluatorOpts[testEvaluable]{
+				Parser:          parser,
+				Eval:            testBoolEvaluator,
+				GCInterval:      time.Hour,
+				GCForceInterval: time.Nanosecond,
+			})
+			defer e.Close()
+			gc := e.(interface{ GC(context.Context) bool })
+			first := tex(test.expression, "first")
+			second := tex(test.expression, "second")
+			for _, eval := range []testEvaluable{first, second} {
+				_, err := e.Add(ctx, eval)
+				require.NoError(t, err)
+			}
+			input := map[string]any{"event": map[string]any{"data": test.data}}
+			matched, err := e.AggregateMatch(ctx, input)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []uuid.UUID{first.GetID(), second.GetID()}, matched)
+
+			// Remove the later insertion: matching predicates must not remove the first's parts.
+			require.NoError(t, e.Remove(ctx, second))
+			require.True(t, gc.GC(ctx))
+			require.Zero(t, e.PendingDeletes())
+			matched, err = e.AggregateMatch(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, []uuid.UUID{first.GetID()}, matched)
+
+			require.NoError(t, e.Remove(ctx, first))
+			require.True(t, gc.GC(ctx))
+			matched, err = e.AggregateMatch(ctx, input)
+			require.NoError(t, err)
+			require.Empty(t, matched)
+		})
+	}
+}
+
 func TestDuplicateAdd(t *testing.T) {
 	ctx := context.Background()
 	parser, err := newParser()
